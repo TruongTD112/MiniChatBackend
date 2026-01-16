@@ -1,7 +1,9 @@
 package miniapp.com.vn.minichatbackend.config;
 
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Contact;
 import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.info.License;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -11,9 +13,16 @@ public class SwaggerConfig {
     @Bean
     public OpenAPI customOpenAPI() {
         return new OpenAPI()
+                .openapi("3.0.1")
                 .info(new Info()
                         .title("MiniChat API")
                         .description("MiniChat is a AI chat system integrated with social media.")
-                        .version("1.0.0"));
+                        .version("1.0.0")
+                        .contact(new Contact()
+                                .name("MiniChat Team")
+                                .email("support@minichat.com"))
+                        .license(new License()
+                                .name("Apache 2.0")
+                                .url("https://www.apache.org/licenses/LICENSE-2.0.html")));
     }
 }

@@ -1,33 +1,36 @@
 package miniapp.com.vn.minichatbackend.entity;
 
-
 import jakarta.persistence.*;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "customer_users")
-@Getter
-@Setter
+@Table(name = "Customer_User", indexes = {
+    @Index(name = "idx_customer_phone", columnList = "phone_number")
+})
+@Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 public class CustomerUser {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    private Long id;
 
-    @Column(nullable = false, length = 255)
+    @Column(length = 255)
     private String name;
 
-    @Column(nullable = false, length = 255, unique = true)
+    @Column(length = 255)
     private String email;
 
-    @Column(nullable = false, length = 50)
+    @Column(length = 50)
     private String provider;
 
-    @Column(name = "provider_id", nullable = false, length = 255, unique = true)
+    @Column(name = "provider_id", unique = true, length = 255)
     private String providerId;
 
     @Column(name = "profile_picture_url", length = 255)
@@ -36,15 +39,13 @@ public class CustomerUser {
     @Column(name = "phone_number", length = 20)
     private String phoneNumber;
 
-    @Column(name = "long_term_session")
-    private String longTermSession;
+    @Column
+    private Integer status;
 
-    @Column(name = "last_messages")
-    private String lastMessages;
-
-    @Column(name = "created_at", insertable = false, updatable = false)
+    @Column(name = "created_at")
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at", insertable = false, updatable = false)
+    @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-} 
+}
+

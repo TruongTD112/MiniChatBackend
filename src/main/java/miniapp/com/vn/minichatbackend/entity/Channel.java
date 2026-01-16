@@ -5,16 +5,18 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "BackOffice_User")
+@Table(name = "Channel")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class BackOfficeUser {
+public class Channel {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -22,26 +24,21 @@ public class BackOfficeUser {
     @Column(length = 255)
     private String name;
 
-    @Column(unique = true, length = 255)
-    private String email;
-
     @Column(length = 50)
-    private String provider;
+    private String platform; // FACEBOOK, ZALO...
 
-    @Column(name = "provider_id", unique = true, length = 255)
-    private String providerId;
-
-    @Column(name = "profile_picture_url", length = 255)
-    private String profilePictureUrl;
-
-    @Column(name = "phone_number", length = 20)
-    private String phoneNumber;
-
-    @Column(name = "password_hash", length = 255)
-    private String passwordHash;
+    @Column(name = "business_id")
+    private Long businessId;
 
     @Column
     private Integer status;
+
+    @Column
+    private String config; // Lưu ý: Mã hóa ở tầng App
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column
+    private String settings;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

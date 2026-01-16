@@ -25,11 +25,8 @@ import java.util.List;
 @Order(2) // Run after logging filter
 public class EndpointAuthFilter extends OncePerRequestFilter {
 	private static final String[] PROTECTED_PATTERNS = new String[] {
-		"/api/admin/**",           // Admin APIs - cần authentication
-		"/api/seller/**",          // Seller APIs - cần authentication  
-		"/api/orders/**",          // Order APIs - cần authentication
-		"/orders/**",          // Order APIs - cần authentication
-		"/api/users/**",            // User APIs - cần authentication
+		"/api/business/**",           // Business APIs - cần authentication
+		"/api/product/**",            // Product APIs - cần authentication
 		"/api/back-office/auth/me"
 	};
 	

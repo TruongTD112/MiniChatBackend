@@ -1,11 +1,12 @@
 package miniapp.com.vn.minichatbackend.dto.request;
 
-import lombok.Builder;
-import lombok.Value;
 
-@Value
-@Builder
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
 public class SocialLoginRequest {
-	String provider; // "google" or "facebook"
-	String token;    // Google ID token or Facebook access token
+    private String provider; // "google" or "facebook"
+    private String token;    // Google ID token or Facebook access token
 }

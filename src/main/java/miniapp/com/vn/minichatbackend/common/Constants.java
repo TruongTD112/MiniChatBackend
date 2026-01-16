@@ -97,4 +97,12 @@ public final class Constants {
         }
     }
 
+    public static final class BackOfficeConstants {
+        public static final int ACTIVE = 1;
+
+        private BackOfficeConstants() {
+        }
+    }
+
+
 }

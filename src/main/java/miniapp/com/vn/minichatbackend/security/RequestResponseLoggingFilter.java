@@ -46,16 +46,21 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
-        // Check if logging is enabled
-        if (loggingConfig != null && !loggingConfig.isEnabled()) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
-        // Generate request ID for all requests
+        // Generate request ID for all requests (even if logging is disabled)
         String requestId = generateRequestId();
         MDC.put(REQUEST_ID_KEY, requestId);
         response.addHeader("X-Request-Id", requestId);
+
+        // Check if logging is enabled
+        if (loggingConfig != null && !loggingConfig.isEnabled()) {
+            try {
+                filterChain.doFilter(request, response);
+            } finally {
+                // Clear MDC even if logging is disabled
+                MDC.clear();
+            }
+            return;
+        }
 
         // Wrap request and response to enable multiple reads
         ContentCachingRequestWrapper wrappedRequest = new ContentCachingRequestWrapper(request, CACHE_LIMIT);
@@ -76,6 +81,9 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
 
             // Copy response body back to original response
             wrappedResponse.copyBodyToResponse();
+
+            // Clear MDC to prevent memory leaks
+            MDC.clear();
         }
     }
 

@@ -9,27 +9,27 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "Intent")
+@Table(name = "BackOffice_Business")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Intent {
+public class BackOfficeBusiness {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    private Long id;
 
-    @Column(length = 255)
-    private String name;
+    @Column(name = "business_id")
+    private Long businessId;
 
-    @Column(length = 255)
-    private String type;
-
-    @Column
-    private String template;
+    @Column(name = "backoffice_user_id")
+    private Long backOfficeUserId;
 
     @Column
     private Integer status;
+
+    @Column(length = 10)
+    private String role; // owner, staff
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

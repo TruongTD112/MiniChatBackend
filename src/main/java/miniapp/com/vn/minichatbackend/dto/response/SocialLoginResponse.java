@@ -1,16 +1,18 @@
 package miniapp.com.vn.minichatbackend.dto.response;
 
-import lombok.Builder;
-import lombok.Value;
+import lombok.*;
 
-@Value
+@Getter
+@Setter
 @Builder
+@AllArgsConstructor
+@NoArgsConstructor
 public class SocialLoginResponse {
-	String token; // JWT
-	Integer userId;
-	String name;
-	String email;
-	String provider;
-	String providerId;
-	String profilePictureUrl;
+    private String token; // JWT
+    private Long userId;
+    private String name;
+    private String email;
+    private String provider;
+    private String providerId;
+    private String profilePictureUrl;
 }
