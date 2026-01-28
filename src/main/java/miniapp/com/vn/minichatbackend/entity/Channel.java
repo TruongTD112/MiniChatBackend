@@ -21,8 +21,14 @@ public class Channel {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "channel_id")
+    private String channelId;
+
     @Column(length = 255)
     private String name;
+
+    @Column(name = "avatar_url")
+    private String avatarUrl;
 
     @Column(length = 50)
     private String platform; // FACEBOOK, ZALO...
