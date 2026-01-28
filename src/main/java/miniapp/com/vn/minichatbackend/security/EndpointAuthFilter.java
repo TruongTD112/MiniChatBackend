@@ -27,7 +27,8 @@ public class EndpointAuthFilter extends OncePerRequestFilter {
 	private static final String[] PROTECTED_PATTERNS = new String[] {
 		"/api/business/**",           // Business APIs - cần authentication
 		"/api/product/**",            // Product APIs - cần authentication
-		"/api/back-office/auth/me"
+		"/api/back-office/auth/me",
+		"/api/facebook/**"            // Facebook APIs - cần authentication
 	};
 	
 	private static final String REQUEST_ID_KEY = "requestId";
