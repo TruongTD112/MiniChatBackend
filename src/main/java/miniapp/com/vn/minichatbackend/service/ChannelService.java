@@ -9,10 +9,13 @@ import miniapp.com.vn.minichatbackend.dto.request.GetChannelsRequest;
 import miniapp.com.vn.minichatbackend.dto.response.ChannelListResponse;
 import miniapp.com.vn.minichatbackend.dto.response.ConnectFacebookPageResponse;
 import miniapp.com.vn.minichatbackend.entity.Channel;
+import miniapp.com.vn.minichatbackend.repo.BackOfficeBusinessRepository;
 import miniapp.com.vn.minichatbackend.repo.BusinessRepository;
+import miniapp.com.vn.minichatbackend.config.FacebookConfig;
 import miniapp.com.vn.minichatbackend.repo.ChannelRepository;
 
 import java.util.Optional;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,26 +30,26 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ChannelService {
-    
-    private static final String PLATFORM_FACEBOOK = "FACEBOOK";
+
     private static final Integer STATUS_ACTIVE = 1;
-    
+
+    private final FacebookConfig facebookConfig;
     private final ChannelRepository channelRepository;
     private final BusinessRepository businessRepository;
+    private final BackOfficeBusinessRepository backOfficeBusinessRepository;
     private final FacebookPageService facebookPageService;
     private final EncryptionService encryptionService;
     
     /**
-     * Connect Facebook Page vào ứng dụng
-     * @param request Chứa userToken, pageId và businessId
-     * @return Result chứa thông tin Channel đã tạo
+     * Connect hoặc reconnect Facebook Page vào ứng dụng.
+     * - Lần đầu: tạo Channel mới, lưu page access token (long-lived).
+     * - Đã có channel (cùng pageId + businessId): cập nhật token, name, avatar (reconnect sau 60 ngày hoặc khi token hết hạn/revoke).
      */
     @Transactional
     public Result<ConnectFacebookPageResponse> connectFacebookPage(ConnectFacebookPageRequest request) {
-        // Validate request
         if (request == null || request.getUserToken() == null || request.getPageId() == null || request.getBusinessId() == null) {
             log.warn("Invalid connect Facebook page request");
-            return Result.error(ErrorCode.INVALID_REQUEST, 
+            return Result.error(ErrorCode.INVALID_REQUEST,
                 "userToken, pageId và businessId không được để trống");
         }
         
@@ -55,66 +58,63 @@ public class ChannelService {
             log.warn("Business not found: businessId={}", request.getBusinessId());
             return Result.error(ErrorCode.NOT_FOUND, "Business không tồn tại");
         }
-        
-        // Kiểm tra Channel đã tồn tại chưa (theo channelId và businessId)
-        // Lưu ý: Có thể có nhiều channels với cùng channelId nhưng khác businessId
-        boolean channelExists = channelRepository.findAll().stream()
-            .anyMatch(ch -> request.getPageId().equals(ch.getChannelId()) 
-                && request.getBusinessId().equals(ch.getBusinessId()));
-        
-        if (channelExists) {
-            log.warn("Channel already exists: channelId={}, businessId={}", 
-                request.getPageId(), request.getBusinessId());
-            return Result.error(ErrorCode.CONFLICT, 
-                "Channel đã được connect vào Business");
-        }
-        
-        // Gọi Facebook API để lấy thông tin page và access token
-        FacebookPageService.FacebookPageData pageData = 
+
+        FacebookPageService.FacebookPageData pageData =
             facebookPageService.getPageWithAccessToken(request.getUserToken(), request.getPageId());
-        
+
         if (pageData == null) {
             log.warn("Page not found or cannot access: pageId={}", request.getPageId());
-            return Result.error(ErrorCode.NOT_FOUND, 
+            return Result.error(ErrorCode.NOT_FOUND,
                 "Không tìm thấy Page hoặc không có quyền truy cập Page này");
         }
-        
+
         if (pageData.getAccessToken() == null || pageData.getAccessToken().trim().isEmpty()) {
             log.warn("Page access token is null or empty: pageId={}", request.getPageId());
-            return Result.error(ErrorCode.INTERNAL_ERROR, 
+            return Result.error(ErrorCode.INTERNAL_ERROR,
                 "Không thể lấy Page Access Token từ Facebook");
         }
-        
-        // Lấy avatar URL
+
         String avatarUrl = null;
-        if (pageData.getPicture() != null && 
-            pageData.getPicture().getData() != null) {
+        if (pageData.getPicture() != null && pageData.getPicture().getData() != null) {
             avatarUrl = pageData.getPicture().getData().getUrl();
         }
         
         // Mã hóa page access token trước khi lưu
         String encryptedAccessToken = encryptionService.encrypt(pageData.getAccessToken());
-        
-        // Tạo Channel mới
-        Channel channel = Channel.builder()
-            .channelId(request.getPageId())
-            .name(pageData.getName())
-            .avatarUrl(avatarUrl)
-            .platform(PLATFORM_FACEBOOK)
-            .businessId(request.getBusinessId())
-            .status(STATUS_ACTIVE)
-            .config(encryptedAccessToken) // Lưu encrypted token
-            .settings(null) // Có thể lưu thêm settings sau
-            .createdAt(LocalDateTime.now())
-            .updatedAt(LocalDateTime.now())
-            .build();
-        
-        Channel savedChannel = channelRepository.save(channel);
-        
-        log.info("Successfully connected Facebook Page: channelId={}, pageId={}, businessId={}", 
-            savedChannel.getId(), request.getPageId(), request.getBusinessId());
-        
-        // Tạo response
+
+        Optional<Channel> existingOpt = channelRepository.findByBusinessIdAndChannelId(
+            request.getBusinessId(), request.getPageId());
+
+        Channel savedChannel;
+        if (existingOpt.isPresent()) {
+            // Reconnect: cập nhật token (và thông tin page) cho channel đã có
+            Channel existing = existingOpt.get();
+            existing.setName(pageData.getName());
+            existing.setAvatarUrl(avatarUrl);
+            existing.setConfig(encryptedAccessToken);
+            existing.setUpdatedAt(LocalDateTime.now());
+            savedChannel = channelRepository.save(existing);
+            log.info("Reconnected Facebook Page (token updated): channelId={}, pageId={}, businessId={}",
+                savedChannel.getId(), request.getPageId(), request.getBusinessId());
+        } else {
+            // Connect lần đầu: tạo Channel mới
+            Channel channel = Channel.builder()
+                .channelId(request.getPageId())
+                .name(pageData.getName())
+                .avatarUrl(avatarUrl)
+                .platform(facebookConfig.getPlatformName())
+                .businessId(request.getBusinessId())
+                .status(STATUS_ACTIVE)
+                .config(encryptedAccessToken)
+                .settings(null)
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+            savedChannel = channelRepository.save(channel);
+            log.info("Successfully connected Facebook Page: channelId={}, pageId={}, businessId={}",
+                savedChannel.getId(), request.getPageId(), request.getBusinessId());
+        }
+
         ConnectFacebookPageResponse response = ConnectFacebookPageResponse.builder()
             .id(savedChannel.getId())
             .channelId(savedChannel.getChannelId())
@@ -123,7 +123,6 @@ public class ChannelService {
             .platform(savedChannel.getPlatform())
             .status(savedChannel.getStatus())
             .build();
-        
         return Result.success(response);
     }
     
@@ -227,5 +226,35 @@ public class ChannelService {
             return null;
         }
         return channelRepository.findById(channelId).orElse(null);
+    }
+
+    /**
+     * Disconnect (xóa) channel Facebook. Chỉ cho phép khi user có quyền với business của channel (BackOffice_Business).
+     */
+    @Transactional
+    public Result<Void> disconnectChannel(Long channelId, Long backOfficeUserId) {
+        if (channelId == null) {
+            return Result.error(ErrorCode.INVALID_REQUEST, "channelId không được để trống");
+        }
+        if (backOfficeUserId == null) {
+            return Result.error(ErrorCode.UNAUTHORIZED, "Unauthorized");
+        }
+        Channel channel = channelRepository.findById(channelId).orElse(null);
+        if (channel == null) {
+            return Result.error(ErrorCode.NOT_FOUND, "Channel không tồn tại");
+        }
+        if (!facebookConfig.getPlatformName().equalsIgnoreCase(channel.getPlatform())) {
+            return Result.error(ErrorCode.INVALID_REQUEST, "Channel này không phải Facebook Page");
+        }
+        boolean hasAccess = backOfficeBusinessRepository
+                .findByBackOfficeUserIdAndBusinessId(backOfficeUserId, channel.getBusinessId())
+                .isPresent();
+        if (!hasAccess) {
+            return Result.error(ErrorCode.FORBIDDEN, "Bạn không có quyền ngắt kết nối channel này");
+        }
+        channelRepository.delete(channel);
+        log.info("Disconnected Facebook channel: channelId={}, businessId={}, backOfficeUserId={}",
+                channelId, channel.getBusinessId(), backOfficeUserId);
+        return Result.success(null);
     }
 }

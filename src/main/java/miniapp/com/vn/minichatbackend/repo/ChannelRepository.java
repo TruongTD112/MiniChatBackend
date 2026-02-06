@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface ChannelRepository extends JpaRepository<Channel, Long> {
@@ -15,12 +16,9 @@ public interface ChannelRepository extends JpaRepository<Channel, Long> {
      * @return Danh sách channels
      */
     List<Channel> findByBusinessIdAndPlatform(Long businessId, String platform);
-    
-    /**
-     * Tìm tất cả channels theo businessId
-     * @param businessId ID của Business
-     * @return Danh sách channels
-     */
     List<Channel> findByBusinessId(Long businessId);
+
+    /** Tìm channel theo business và page (dùng cho reconnect cùng Page) */
+    Optional<Channel> findByBusinessIdAndChannelId(Long businessId, String channelId);
 }
 
