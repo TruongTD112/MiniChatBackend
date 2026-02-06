@@ -7,12 +7,15 @@ import miniapp.com.vn.minichatbackend.common.Result;
 import miniapp.com.vn.minichatbackend.dto.request.CreateProductRequest;
 import miniapp.com.vn.minichatbackend.dto.request.UpdateProductRequest;
 import miniapp.com.vn.minichatbackend.dto.response.ProductManagementResponse;
+import miniapp.com.vn.minichatbackend.entity.BackOfficeBusiness;
 import miniapp.com.vn.minichatbackend.entity.Product;
+import miniapp.com.vn.minichatbackend.repo.BackOfficeBusinessRepository;
 import miniapp.com.vn.minichatbackend.repo.ProductRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -22,12 +25,43 @@ import java.util.stream.Collectors;
 public class ProductManagementService {
 
     private final ProductRepository productRepository;
+    private final BackOfficeBusinessRepository backOfficeBusinessRepository;
+
+    /**
+     * Kiểm tra user có quyền truy cập business (có trong bảng BackOffice_Business) không.
+     * @return null nếu có quyền, otherwise AccessCheck với errorCode và message
+     */
+    private AccessCheck failureIfNoAccessToBusiness(Long backOfficeUserId, Long businessId) {
+        if (backOfficeUserId == null) {
+            return new AccessCheck(ErrorCode.UNAUTHORIZED, "Unauthorized");
+        }
+        boolean hasAccess = backOfficeBusinessRepository
+                .findByBackOfficeUserIdAndBusinessId(backOfficeUserId, businessId)
+                .isPresent();
+        if (!hasAccess) {
+            return new AccessCheck(ErrorCode.FORBIDDEN, "Bạn không có quyền truy cập business này");
+        }
+        return null;
+    }
+
+    private record AccessCheck(ErrorCode errorCode, String message) {}
 
     @Transactional
-    public Result<ProductManagementResponse> createProduct(CreateProductRequest request) {
+    public Result<ProductManagementResponse> createProduct(CreateProductRequest request, Long backOfficeUserId) {
         try {
+            if (backOfficeUserId == null) {
+                return Result.error(ErrorCode.UNAUTHORIZED, "Unauthorized");
+            }
+            Long businessId = request.getBusinessId();
+            if (businessId == null) {
+                return Result.error(ErrorCode.INVALID_REQUEST, "businessId là bắt buộc");
+            }
+            AccessCheck noAccess = failureIfNoAccessToBusiness(backOfficeUserId, businessId);
+            if (noAccess != null) {
+                return Result.error(noAccess.errorCode(), noAccess.message());
+            }
             Product product = Product.builder()
-                    .businessId(request.getBusinessId())
+                    .businessId(businessId)
                     .name(request.getName())
                     .description(request.getDescription())
                     .price(request.getPrice())
@@ -41,8 +75,8 @@ public class ProductManagementService {
                     .build();
 
             Product savedProduct = productRepository.save(product);
-            log.info("Product created successfully: id={}, name={}, businessId={}", 
-                    savedProduct.getId(), savedProduct.getName(), savedProduct.getBusinessId());
+            log.info("Product created successfully: id={}, name={}, businessId={}, backOfficeUserId={}",
+                    savedProduct.getId(), savedProduct.getName(), savedProduct.getBusinessId(), backOfficeUserId);
 
             return Result.success(toResponse(savedProduct));
         } catch (Exception e) {
@@ -52,7 +86,7 @@ public class ProductManagementService {
     }
 
     @Transactional
-    public Result<ProductManagementResponse> updateProduct(Long productId, UpdateProductRequest request) {
+    public Result<ProductManagementResponse> updateProduct(Long productId, UpdateProductRequest request, Long backOfficeUserId) {
         try {
             Product product = productRepository.findById(productId)
                     .orElse(null);
@@ -60,8 +94,18 @@ public class ProductManagementService {
             if (product == null) {
                 return Result.error(ErrorCode.NOT_FOUND, "Không tìm thấy sản phẩm với id: " + productId);
             }
-
-            if (request.getBusinessId() != null) {
+            AccessCheck noAccess = failureIfNoAccessToBusiness(backOfficeUserId, product.getBusinessId());
+            if (noAccess != null) {
+                return Result.error(noAccess.errorCode(), noAccess.message());
+            }
+            // Nếu đổi businessId thì phải thuộc business user có quyền
+            if (request.getBusinessId() != null && !request.getBusinessId().equals(product.getBusinessId())) {
+                AccessCheck noAccessNewBiz = failureIfNoAccessToBusiness(backOfficeUserId, request.getBusinessId());
+                if (noAccessNewBiz != null) {
+                    return Result.error(noAccessNewBiz.errorCode(), noAccessNewBiz.message());
+                }
+                product.setBusinessId(request.getBusinessId());
+            } else if (request.getBusinessId() != null) {
                 product.setBusinessId(request.getBusinessId());
             }
             if (request.getName() != null) {
@@ -101,7 +145,7 @@ public class ProductManagementService {
     }
 
     @Transactional(readOnly = true)
-    public Result<ProductManagementResponse> getProductById(Long productId) {
+    public Result<ProductManagementResponse> getProductById(Long productId, Long backOfficeUserId) {
         try {
             Product product = productRepository.findById(productId)
                     .orElse(null);
@@ -109,7 +153,10 @@ public class ProductManagementService {
             if (product == null) {
                 return Result.error(ErrorCode.NOT_FOUND, "Không tìm thấy sản phẩm với id: " + productId);
             }
-
+            AccessCheck noAccess = failureIfNoAccessToBusiness(backOfficeUserId, product.getBusinessId());
+            if (noAccess != null) {
+                return Result.error(noAccess.errorCode(), noAccess.message());
+            }
             return Result.success(toResponse(product));
         } catch (Exception e) {
             log.error("Error getting product by id: {}", e.getMessage(), e);
@@ -118,9 +165,19 @@ public class ProductManagementService {
     }
 
     @Transactional(readOnly = true)
-    public Result<List<ProductManagementResponse>> getAllProducts() {
+    public Result<List<ProductManagementResponse>> getAllProducts(Long backOfficeUserId) {
         try {
-            List<Product> products = productRepository.findAll();
+            if (backOfficeUserId == null) {
+                return Result.error(ErrorCode.UNAUTHORIZED, "Unauthorized");
+            }
+            List<BackOfficeBusiness> userBusinessLinks = backOfficeBusinessRepository.findByBackOfficeUserId(backOfficeUserId);
+            List<Long> businessIds = userBusinessLinks.stream()
+                    .map(BackOfficeBusiness::getBusinessId)
+                    .collect(Collectors.toList());
+            if (businessIds.isEmpty()) {
+                return Result.success(Collections.emptyList());
+            }
+            List<Product> products = productRepository.findByBusinessIdIn(businessIds);
             List<ProductManagementResponse> responses = products.stream()
                     .map(this::toResponse)
                     .collect(Collectors.toList());
@@ -133,8 +190,12 @@ public class ProductManagementService {
     }
 
     @Transactional(readOnly = true)
-    public Result<List<ProductManagementResponse>> getProductsByBusinessId(Long businessId) {
+    public Result<List<ProductManagementResponse>> getProductsByBusinessId(Long businessId, Long backOfficeUserId) {
         try {
+            AccessCheck noAccess = failureIfNoAccessToBusiness(backOfficeUserId, businessId);
+            if (noAccess != null) {
+                return Result.error(noAccess.errorCode(), noAccess.message());
+            }
             List<Product> products = productRepository.findByBusinessId(businessId);
             List<ProductManagementResponse> responses = products.stream()
                     .map(this::toResponse)
@@ -148,7 +209,7 @@ public class ProductManagementService {
     }
 
     @Transactional
-    public Result<Void> deleteProduct(Long productId) {
+    public Result<Void> deleteProduct(Long productId, Long backOfficeUserId) {
         try {
             Product product = productRepository.findById(productId)
                     .orElse(null);
@@ -156,7 +217,10 @@ public class ProductManagementService {
             if (product == null) {
                 return Result.error(ErrorCode.NOT_FOUND, "Không tìm thấy sản phẩm với id: " + productId);
             }
-
+            AccessCheck noAccess = failureIfNoAccessToBusiness(backOfficeUserId, product.getBusinessId());
+            if (noAccess != null) {
+                return Result.error(noAccess.errorCode(), noAccess.message());
+            }
             productRepository.delete(product);
             log.info("Product deleted successfully: id={}", productId);
 

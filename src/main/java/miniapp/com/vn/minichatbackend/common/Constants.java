@@ -104,5 +104,14 @@ public final class Constants {
         }
     }
 
+    /**
+     * Role trong bảng BackOffice_Business (quan hệ user - business)
+     */
+    public static final class BackOfficeBusinessRole {
+        public static final String OWNER = "owner";
+        public static final String STAFF = "staff";
 
+        private BackOfficeBusinessRole() {
+        }
+    }
 }

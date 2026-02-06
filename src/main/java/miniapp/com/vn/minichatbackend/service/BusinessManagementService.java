@@ -7,12 +7,16 @@ import miniapp.com.vn.minichatbackend.common.Result;
 import miniapp.com.vn.minichatbackend.dto.request.CreateBusinessRequest;
 import miniapp.com.vn.minichatbackend.dto.request.UpdateBusinessRequest;
 import miniapp.com.vn.minichatbackend.dto.response.BusinessManagementResponse;
+import miniapp.com.vn.minichatbackend.entity.BackOfficeBusiness;
 import miniapp.com.vn.minichatbackend.entity.Business;
+import miniapp.com.vn.minichatbackend.common.Constants;
+import miniapp.com.vn.minichatbackend.repo.BackOfficeBusinessRepository;
 import miniapp.com.vn.minichatbackend.repo.BusinessRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -22,10 +26,33 @@ import java.util.stream.Collectors;
 public class BusinessManagementService {
 
     private final BusinessRepository businessRepository;
+    private final BackOfficeBusinessRepository backOfficeBusinessRepository;
+
+    /**
+     * Kiểm tra user hiện tại có quyền truy cập business (có trong bảng BackOffice_Business) không.
+     * @return null nếu có quyền, otherwise ErrorCode và message để trả về lỗi
+     */
+    private AccessCheck failureIfNoAccess(Long backOfficeUserId, Long businessId) {
+        if (backOfficeUserId == null) {
+            return new AccessCheck(ErrorCode.UNAUTHORIZED, "Unauthorized");
+        }
+        boolean hasAccess = backOfficeBusinessRepository
+                .findByBackOfficeUserIdAndBusinessId(backOfficeUserId, businessId)
+                .isPresent();
+        if (!hasAccess) {
+            return new AccessCheck(ErrorCode.FORBIDDEN, "Bạn không có quyền truy cập business này");
+        }
+        return null;
+    }
+
+    private record AccessCheck(ErrorCode errorCode, String message) {}
 
     @Transactional
-    public Result<BusinessManagementResponse> createBusiness(CreateBusinessRequest request) {
+    public Result<BusinessManagementResponse> createBusiness(CreateBusinessRequest request, Long backOfficeUserId) {
         try {
+            if (backOfficeUserId == null) {
+                return Result.error(ErrorCode.UNAUTHORIZED, "Unauthorized");
+            }
             Business business = Business.builder()
                     .name(request.getName())
                     .phone(request.getPhone())
@@ -39,8 +66,18 @@ public class BusinessManagementService {
                     .build();
 
             Business savedBusiness = businessRepository.save(business);
-            log.info("Business created successfully: id={}, name={}", savedBusiness.getId(), savedBusiness.getName());
 
+            // Gán business cho user trong bảng BackOffice_Business (owner)
+            BackOfficeBusiness backOfficeBusiness = BackOfficeBusiness.builder()
+                    .businessId(savedBusiness.getId())
+                    .backOfficeUserId(backOfficeUserId)
+                    .status(Constants.BackOfficeConstants.ACTIVE)
+                    .role(Constants.BackOfficeBusinessRole.OWNER)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            backOfficeBusinessRepository.save(backOfficeBusiness);
+
+            log.info("Business created successfully: id={}, name={}, backOfficeUserId={}", savedBusiness.getId(), savedBusiness.getName(), backOfficeUserId);
             return Result.success(toResponse(savedBusiness));
         } catch (Exception e) {
             log.error("Error creating business: {}", e.getMessage(), e);
@@ -49,8 +86,12 @@ public class BusinessManagementService {
     }
 
     @Transactional
-    public Result<BusinessManagementResponse> updateBusiness(Long businessId, UpdateBusinessRequest request) {
+    public Result<BusinessManagementResponse> updateBusiness(Long businessId, UpdateBusinessRequest request, Long backOfficeUserId) {
         try {
+            AccessCheck noAccess = failureIfNoAccess(backOfficeUserId, businessId);
+            if (noAccess != null) {
+                return Result.error(noAccess.errorCode(), noAccess.message());
+            }
             Business business = businessRepository.findById(businessId)
                     .orElse(null);
 
@@ -92,8 +133,12 @@ public class BusinessManagementService {
     }
 
     @Transactional(readOnly = true)
-    public Result<BusinessManagementResponse> getBusinessById(Long businessId) {
+    public Result<BusinessManagementResponse> getBusinessById(Long businessId, Long backOfficeUserId) {
         try {
+            AccessCheck noAccess = failureIfNoAccess(backOfficeUserId, businessId);
+            if (noAccess != null) {
+                return Result.error(noAccess.errorCode(), noAccess.message());
+            }
             Business business = businessRepository.findById(businessId)
                     .orElse(null);
 
@@ -109,9 +154,19 @@ public class BusinessManagementService {
     }
 
     @Transactional(readOnly = true)
-    public Result<List<BusinessManagementResponse>> getAllBusinesses() {
+    public Result<List<BusinessManagementResponse>> getAllBusinesses(Long backOfficeUserId) {
         try {
-            List<Business> businesses = businessRepository.findAll();
+            if (backOfficeUserId == null) {
+                return Result.error(ErrorCode.UNAUTHORIZED, "Unauthorized");
+            }
+            List<BackOfficeBusiness> userBusinessLinks = backOfficeBusinessRepository.findByBackOfficeUserId(backOfficeUserId);
+            List<Long> businessIds = userBusinessLinks.stream()
+                    .map(BackOfficeBusiness::getBusinessId)
+                    .collect(Collectors.toList());
+            if (businessIds.isEmpty()) {
+                return Result.success(Collections.emptyList());
+            }
+            List<Business> businesses = businessRepository.findAllById(businessIds);
             List<BusinessManagementResponse> responses = businesses.stream()
                     .map(this::toResponse)
                     .collect(Collectors.toList());
@@ -124,8 +179,12 @@ public class BusinessManagementService {
     }
 
     @Transactional
-    public Result<Void> deleteBusiness(Long businessId) {
+    public Result<Void> deleteBusiness(Long businessId, Long backOfficeUserId) {
         try {
+            AccessCheck noAccess = failureIfNoAccess(backOfficeUserId, businessId);
+            if (noAccess != null) {
+                return Result.error(noAccess.errorCode(), noAccess.message());
+            }
             Business business = businessRepository.findById(businessId)
                     .orElse(null);
 
@@ -133,6 +192,9 @@ public class BusinessManagementService {
                 return Result.error(ErrorCode.NOT_FOUND, "Không tìm thấy business với id: " + businessId);
             }
 
+            // Xóa tất cả quan hệ BackOffice_Business của business này (owner + staff)
+            List<BackOfficeBusiness> links = backOfficeBusinessRepository.findByBusinessId(businessId);
+            backOfficeBusinessRepository.deleteAll(links);
             businessRepository.delete(business);
             log.info("Business deleted successfully: id={}", businessId);
 

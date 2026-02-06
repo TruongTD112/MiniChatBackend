@@ -79,7 +79,7 @@ public class BusinessManagementController {
         }
 
         log.info("Create business request: userId={}, name={}", userId, request.getName());
-        return businessManagementService.createBusiness(request);
+        return businessManagementService.createBusiness(request, userId);
     }
 
     /**
@@ -110,7 +110,7 @@ public class BusinessManagementController {
         }
 
         log.info("Update business request: userId={}, businessId={}", userId, businessId);
-        return businessManagementService.updateBusiness(businessId, request);
+        return businessManagementService.updateBusiness(businessId, request, userId);
     }
 
     /**
@@ -134,7 +134,7 @@ public class BusinessManagementController {
         }
 
         log.info("Get all businesses request: userId={}", userId);
-        return businessManagementService.getAllBusinesses();
+        return businessManagementService.getAllBusinesses(userId);
     }
 
     /**
@@ -162,7 +162,7 @@ public class BusinessManagementController {
         }
 
         log.info("Get business request: userId={}, businessId={}", userId, businessId);
-        return businessManagementService.getBusinessById(businessId);
+        return businessManagementService.getBusinessById(businessId, userId);
     }
 
     /**
@@ -189,7 +189,7 @@ public class BusinessManagementController {
         }
 
         log.info("Delete business request: userId={}, businessId={}", userId, businessId);
-        return businessManagementService.deleteBusiness(businessId);
+        return businessManagementService.deleteBusiness(businessId, userId);
     }
 
 }
