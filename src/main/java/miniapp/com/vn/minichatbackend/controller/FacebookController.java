@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import miniapp.com.vn.minichatbackend.common.ErrorCode;
 import miniapp.com.vn.minichatbackend.common.Result;
 import miniapp.com.vn.minichatbackend.dto.request.ConnectFacebookPageRequest;
 import miniapp.com.vn.minichatbackend.dto.request.FacebookPageRequest;
@@ -28,6 +29,10 @@ import miniapp.com.vn.minichatbackend.entity.Channel;
 import miniapp.com.vn.minichatbackend.service.ChannelService;
 import miniapp.com.vn.minichatbackend.service.FacebookConversationService;
 import miniapp.com.vn.minichatbackend.service.FacebookPageService;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -46,7 +51,19 @@ public class FacebookController {
 	private final FacebookPageService facebookPageService;
 	private final ChannelService channelService;
 	private final FacebookConversationService facebookConversationService;
-	
+
+	private Long getCurrentUserId() {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+		if (auth != null && auth.getPrincipal() != null) {
+			if (auth.getPrincipal() instanceof Integer) {
+				return ((Integer) auth.getPrincipal()).longValue();
+			}
+			if (auth.getPrincipal() instanceof Long) {
+				return (Long) auth.getPrincipal();
+			}
+		}
+		return null;
+	}
 
 	/**
 	 * API lấy danh sách Channels/Pages đã connect thành công
@@ -169,6 +186,33 @@ public class FacebookController {
 				result.getCode(), result.getMessage());
 		}
 		return result;
+	}
+
+	/**
+	 * API ngắt kết nối (disconnect) Facebook Page khỏi Business.
+	 * Chỉ user có quyền với business (BackOffice_Business) mới được disconnect.
+	 */
+	@DeleteMapping("/channel/{channelId}")
+	@Operation(
+		summary = "Disconnect Facebook Page",
+		description = "Ngắt kết nối Facebook Page khỏi Business. Xóa channel và token đã lưu. Chỉ user có quyền với business mới thực hiện được."
+	)
+	@ApiResponses(value = {
+		@ApiResponse(responseCode = "200", description = "Ngắt kết nối thành công"),
+		@ApiResponse(responseCode = "401", description = "Chưa xác thực"),
+		@ApiResponse(responseCode = "403", description = "Không có quyền ngắt kết nối channel này"),
+		@ApiResponse(responseCode = "404", description = "Channel không tồn tại"),
+		@ApiResponse(responseCode = "500", description = "Lỗi server")
+	})
+	public Result<Void> disconnectChannel(
+		@Parameter(description = "ID của Channel (Facebook Page) cần ngắt kết nối", required = true, example = "1")
+		@PathVariable Long channelId) {
+		Long userId = getCurrentUserId();
+		if (userId == null) {
+			return Result.error(ErrorCode.INVALID_CREDENTIALS, "Unauthorized");
+		}
+		log.info("Disconnect channel request: userId={}, channelId={}", userId, channelId);
+		return channelService.disconnectChannel(channelId, userId);
 	}
 
 	/**

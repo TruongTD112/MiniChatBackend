@@ -9,6 +9,7 @@ import miniapp.com.vn.minichatbackend.dto.request.GetChannelsRequest;
 import miniapp.com.vn.minichatbackend.dto.response.ChannelListResponse;
 import miniapp.com.vn.minichatbackend.dto.response.ConnectFacebookPageResponse;
 import miniapp.com.vn.minichatbackend.entity.Channel;
+import miniapp.com.vn.minichatbackend.repo.BackOfficeBusinessRepository;
 import miniapp.com.vn.minichatbackend.repo.BusinessRepository;
 import miniapp.com.vn.minichatbackend.config.FacebookConfig;
 import miniapp.com.vn.minichatbackend.repo.ChannelRepository;
@@ -35,6 +36,7 @@ public class ChannelService {
     private final FacebookConfig facebookConfig;
     private final ChannelRepository channelRepository;
     private final BusinessRepository businessRepository;
+    private final BackOfficeBusinessRepository backOfficeBusinessRepository;
     private final FacebookPageService facebookPageService;
     private final EncryptionService encryptionService;
     
@@ -224,5 +226,35 @@ public class ChannelService {
             return null;
         }
         return channelRepository.findById(channelId).orElse(null);
+    }
+
+    /**
+     * Disconnect (xóa) channel Facebook. Chỉ cho phép khi user có quyền với business của channel (BackOffice_Business).
+     */
+    @Transactional
+    public Result<Void> disconnectChannel(Long channelId, Long backOfficeUserId) {
+        if (channelId == null) {
+            return Result.error(ErrorCode.INVALID_REQUEST, "channelId không được để trống");
+        }
+        if (backOfficeUserId == null) {
+            return Result.error(ErrorCode.UNAUTHORIZED, "Unauthorized");
+        }
+        Channel channel = channelRepository.findById(channelId).orElse(null);
+        if (channel == null) {
+            return Result.error(ErrorCode.NOT_FOUND, "Channel không tồn tại");
+        }
+        if (!facebookConfig.getPlatformName().equalsIgnoreCase(channel.getPlatform())) {
+            return Result.error(ErrorCode.INVALID_REQUEST, "Channel này không phải Facebook Page");
+        }
+        boolean hasAccess = backOfficeBusinessRepository
+                .findByBackOfficeUserIdAndBusinessId(backOfficeUserId, channel.getBusinessId())
+                .isPresent();
+        if (!hasAccess) {
+            return Result.error(ErrorCode.FORBIDDEN, "Bạn không có quyền ngắt kết nối channel này");
+        }
+        channelRepository.delete(channel);
+        log.info("Disconnected Facebook channel: channelId={}, businessId={}, backOfficeUserId={}",
+                channelId, channel.getBusinessId(), backOfficeUserId);
+        return Result.success(null);
     }
 }
