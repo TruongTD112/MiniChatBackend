@@ -80,7 +80,7 @@ public class ProductManagementController {
 
         log.info("Create product request: userId={}, name={}, businessId={}", 
                 userId, request.getName(), request.getBusinessId());
-        return productManagementService.createProduct(request);
+        return productManagementService.createProduct(request, userId);
     }
 
     /**
@@ -111,7 +111,7 @@ public class ProductManagementController {
         }
 
         log.info("Update product request: userId={}, productId={}", userId, productId);
-        return productManagementService.updateProduct(productId, request);
+        return productManagementService.updateProduct(productId, request, userId);
     }
 
     /**
@@ -135,7 +135,7 @@ public class ProductManagementController {
         }
 
         log.info("Get all products request: userId={}", userId);
-        return productManagementService.getAllProducts();
+        return productManagementService.getAllProducts(userId);
     }
 
     /**
@@ -162,7 +162,7 @@ public class ProductManagementController {
         }
 
         log.info("Get products by business id request: userId={}, businessId={}", userId, businessId);
-        return productManagementService.getProductsByBusinessId(businessId);
+        return productManagementService.getProductsByBusinessId(businessId, userId);
     }
 
     /**
@@ -190,7 +190,7 @@ public class ProductManagementController {
         }
 
         log.info("Get product request: userId={}, productId={}", userId, productId);
-        return productManagementService.getProductById(productId);
+        return productManagementService.getProductById(productId, userId);
     }
 
     /**
@@ -217,7 +217,7 @@ public class ProductManagementController {
         }
 
         log.info("Delete product request: userId={}, productId={}", userId, productId);
-        return productManagementService.deleteProduct(productId);
+        return productManagementService.deleteProduct(productId, userId);
     }
 }
 
