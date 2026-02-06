@@ -11,6 +11,7 @@ import miniapp.com.vn.minichatbackend.dto.response.FacebookPageResponse;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import miniapp.com.vn.minichatbackend.config.FacebookConfig;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
@@ -21,36 +22,75 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Service để gọi Facebook Graph API và lấy danh sách Pages
+ * Service để gọi Facebook Graph API và lấy danh sách Pages.
+ * Khi có app-id và app-secret, user token sẽ được đổi sang long-lived (60 ngày) trước khi gọi API,
+ * page access token lưu DB sẽ không bị hết hạn sớm.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class FacebookPageService {
-    
-    private static final String FACEBOOK_GRAPH_API_BASE_URL = "https://graph.facebook.com/v24.0";
-    private static final String GET_PAGES_ENDPOINT = "/me/accounts";
-    
+
+    private final FacebookConfig facebookConfig;
     private final RestTemplate restTemplate;
-    
+
     /**
-     * Lấy danh sách Facebook Pages từ user token (bao gồm page access token)
-     * @param userToken Facebook user access token
-     * @return Result chứa danh sách pages với access token hoặc error
+     * Đổi short-lived user token sang long-lived (khoảng 60 ngày).
+     * Nếu chưa cấu hình app-id/app-secret thì trả về token gốc.
+     */
+    public String exchangeUserTokenForLongLived(String shortLivedUserToken) {
+        if (shortLivedUserToken == null || shortLivedUserToken.isBlank()) {
+            return shortLivedUserToken;
+        }
+        String appId = facebookConfig.getAppId();
+        String appSecret = facebookConfig.getAppSecret();
+        if (appId == null || appId.isBlank() || appSecret == null || appSecret.isBlank()) {
+            log.debug("Facebook app-id/app-secret chưa cấu hình, dùng token gốc (có thể hết hạn sớm)");
+            return shortLivedUserToken.trim();
+        }
+        try {
+            String url = facebookConfig.getGraphApi().getUrl() + facebookConfig.getOauthTokenExchangePath() +
+                    "?grant_type=fb_exchange_token" +
+                    "&client_id=" + appId +
+                    "&client_secret=" + appSecret +
+                    "&fb_exchange_token=" + shortLivedUserToken.trim();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Accept", "application/json");
+            ResponseEntity<FacebookTokenExchangeResponse> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    FacebookTokenExchangeResponse.class
+            );
+            FacebookTokenExchangeResponse body = response.getBody();
+            if (body != null && body.getAccessToken() != null && !body.getAccessToken().isBlank()) {
+                log.info("Đã đổi user token sang long-lived (expires_in={}s)", body.getExpiresIn());
+                return body.getAccessToken();
+            }
+        } catch (HttpClientErrorException e) {
+            log.warn("Đổi token long-lived thất bại: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+        } catch (Exception e) {
+            log.warn("Lỗi khi đổi token long-lived: {}", e.getMessage());
+        }
+        return shortLivedUserToken.trim();
+    }
+
+    /**
+     * Lấy danh sách Facebook Pages từ user token (bao gồm page access token).
+     * User token sẽ được đổi sang long-lived trước khi gọi /me/accounts.
      */
     public Result<FacebookPageResponse> getPages(String userToken) {
         if (userToken == null || userToken.trim().isEmpty()) {
             log.warn("Facebook user token is null or empty");
             return Result.error(ErrorCode.INVALID_REQUEST, "Facebook user token không được để trống");
         }
-        
+        String tokenToUse = exchangeUserTokenForLongLived(userToken);
         try {
-            // Gọi Facebook Graph API để lấy danh sách pages (bao gồm access_token)
-            String url = FACEBOOK_GRAPH_API_BASE_URL + GET_PAGES_ENDPOINT + 
-                        "?access_token=" + userToken.trim() + 
-                        "&fields=id,name,picture,access_token";
-            
-            log.info("Calling Facebook Graph API: {}", url.replace(userToken, "***"));
+            String url = facebookConfig.getGraphApi().getUrl() + facebookConfig.getPagesEndpoint() +
+                        "?access_token=" + tokenToUse +
+                        "&fields=" + facebookConfig.getPagesFields();
+
+            log.info("Calling Facebook Graph API: {}", url.replace(tokenToUse, "***"));
             
             HttpHeaders headers = new HttpHeaders();
             headers.set("Accept", "application/json");
@@ -98,7 +138,7 @@ public class FacebookPageService {
             
         } catch (HttpClientErrorException.Unauthorized e) {
             log.warn("Facebook API returned 401 Unauthorized: {}", e.getMessage());
-            return Result.error(ErrorCode.UNAUTHORIZED, "Facebook token không hợp lệ hoặc đã hết hạn");
+            return Result.error(ErrorCode.TOKEN_EXPIRED, "Token hết hạn hoặc đã bị thu hồi, vui lòng kết nối lại Page.");
         } catch (HttpClientErrorException e) {
             log.error("Facebook API returned error: status={}, body={}", 
                 e.getStatusCode(), e.getResponseBodyAsString(), e);
@@ -115,6 +155,18 @@ public class FacebookPageService {
         }
     }
     
+    /** DTO response từ GET oauth/access_token (grant_type=fb_exchange_token) */
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class FacebookTokenExchangeResponse {
+        @JsonProperty("access_token")
+        private String accessToken;
+        @JsonProperty("token_type")
+        private String tokenType;
+        @JsonProperty("expires_in")
+        private Long expiresIn;
+    }
+
     /**
      * DTO để map response từ Facebook Graph API
      */
@@ -171,23 +223,21 @@ public class FacebookPageService {
     }
     
     /**
-     * Lấy thông tin một Page cụ thể bao gồm access token từ user token
-     * @param userToken Facebook user access token
-     * @param pageId ID của page cần lấy
-     * @return FacebookPageData với access token hoặc null nếu không tìm thấy
+     * Lấy thông tin một Page cụ thể bao gồm access token từ user token.
+     * User token được đổi sang long-lived trước; page token trả về từ /me/accounts (dùng long-lived user token)
+     * sẽ là long-lived/không hết hạn, phù hợp lưu DB.
      */
     public FacebookPageData getPageWithAccessToken(String userToken, String pageId) {
         if (userToken == null || userToken.trim().isEmpty() || pageId == null || pageId.trim().isEmpty()) {
             log.warn("Facebook user token or pageId is null or empty");
             return null;
         }
-        
+        String tokenToUse = exchangeUserTokenForLongLived(userToken);
         try {
-            // Gọi Facebook Graph API để lấy danh sách pages (bao gồm access_token)
-            String url = FACEBOOK_GRAPH_API_BASE_URL + GET_PAGES_ENDPOINT + 
-                        "?access_token=" + userToken.trim() + 
-                        "&fields=id,name,picture,access_token";
-            
+            String url = facebookConfig.getGraphApi().getUrl() + facebookConfig.getPagesEndpoint() +
+                        "?access_token=" + tokenToUse +
+                        "&fields=" + facebookConfig.getPagesFields();
+
             log.info("Calling Facebook Graph API to get page: pageId={}", pageId);
             
             HttpHeaders headers = new HttpHeaders();

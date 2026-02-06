@@ -15,6 +15,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import miniapp.com.vn.minichatbackend.config.FacebookConfig;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
@@ -37,12 +38,11 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class FacebookConversationService {
-    
-    private static final String FACEBOOK_GRAPH_API_BASE_URL = "https://graph.facebook.com/v18.0";
-    private static final int DEFAULT_LIMIT = 25;
-    private static final DateTimeFormatter FACEBOOK_DATE_FORMATTER = 
-        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ");
-    
+
+    private static final DateTimeFormatter FACEBOOK_DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ");
+
+    private final FacebookConfig facebookConfig;
     private final RestTemplate restTemplate;
     
     /**
@@ -63,15 +63,17 @@ public class FacebookConversationService {
             return Result.error(ErrorCode.INVALID_REQUEST, "Page Access Token không được để trống");
         }
         
-        int requestLimit = (limit != null && limit > 0) ? Math.min(limit, 100) : DEFAULT_LIMIT;
-        
+        int defaultLimit = facebookConfig.getConversation().getDefaultLimit();
+        int maxLimit = facebookConfig.getConversation().getMaxLimit();
+        int requestLimit = (limit != null && limit > 0) ? Math.min(limit, maxLimit) : defaultLimit;
+
         try {
             // Gọi Facebook Graph API để lấy conversations
             // Lưu ý: Facebook API có thể không trả về messages trong conversations endpoint
             // Cần gọi riêng endpoint messages nếu muốn lấy chi tiết messages
-            String url = FACEBOOK_GRAPH_API_BASE_URL + "/" + pageId + "/conversations" +
+            String url = facebookConfig.getGraphApi().getUrl() + "/" + pageId + "/conversations" +
                         "?access_token=" + pageAccessToken.trim() +
-                        "&fields=id,link,message_count,participants,sender,updated_time" +
+                        "&fields=" + facebookConfig.getConversation().getFields() +
                         "&limit=" + requestLimit;
             
             log.info("Calling Facebook Graph API to get conversations: pageId={}, limit={}", pageId, requestLimit);
@@ -192,8 +194,8 @@ public class FacebookConversationService {
             
         } catch (HttpClientErrorException.Unauthorized e) {
             log.warn("Facebook API returned 401 Unauthorized: {}", e.getMessage());
-            return Result.error(ErrorCode.UNAUTHORIZED, 
-                "Page Access Token không hợp lệ hoặc đã hết hạn");
+            return Result.error(ErrorCode.TOKEN_EXPIRED,
+                "Token hết hạn hoặc đã bị thu hồi, vui lòng kết nối lại Page.");
         } catch (HttpClientErrorException e) {
             log.error("Facebook API returned error: status={}, body={}", 
                 e.getStatusCode(), e.getResponseBodyAsString(), e);
@@ -234,12 +236,14 @@ public class FacebookConversationService {
             return Result.error(ErrorCode.INVALID_REQUEST, "Page Access Token không được để trống");
         }
 
-        int requestLimit = (limit != null && limit > 0) ? Math.min(limit, 100) : DEFAULT_LIMIT;
+        int defaultLimit = facebookConfig.getConversation().getDefaultLimit();
+        int maxLimit = facebookConfig.getConversation().getMaxLimit();
+        int requestLimit = (limit != null && limit > 0) ? Math.min(limit, maxLimit) : defaultLimit;
 
         try {
-            String url = FACEBOOK_GRAPH_API_BASE_URL + "/" + conversationId.trim() + "/messages" +
+            String url = facebookConfig.getGraphApi().getUrl() + "/" + conversationId.trim() + "/messages" +
                     "?access_token=" + pageAccessToken.trim() +
-                    "&fields=id,message,created_time,from" +
+                    "&fields=" + facebookConfig.getMessages().getFields() +
                     "&limit=" + requestLimit;
             if (after != null && !after.trim().isEmpty()) {
                 url += "&after=" + after.trim();
@@ -317,8 +321,8 @@ public class FacebookConversationService {
 
         } catch (HttpClientErrorException.Unauthorized e) {
             log.warn("Facebook API returned 401 Unauthorized: {}", e.getMessage());
-            return Result.error(ErrorCode.UNAUTHORIZED,
-                    "Page Access Token không hợp lệ hoặc đã hết hạn");
+            return Result.error(ErrorCode.TOKEN_EXPIRED,
+                    "Token hết hạn hoặc đã bị thu hồi, vui lòng kết nối lại Page.");
         } catch (HttpClientErrorException e) {
             log.error("Facebook API returned error: status={}, body={}",
                     e.getStatusCode(), e.getResponseBodyAsString(), e);
@@ -358,12 +362,12 @@ public class FacebookConversationService {
             return Result.error(ErrorCode.INVALID_REQUEST, "Nội dung tin nhắn không được để trống");
         }
         try {
-            String url = FACEBOOK_GRAPH_API_BASE_URL + "/me/messages?access_token=" + pageAccessToken.trim();
+            String url = facebookConfig.getGraphApi().getUrl() + "/me/messages?access_token=" + pageAccessToken.trim();
             Map<String, Object> recipient = Collections.singletonMap("id", recipientPsid.trim());
             Map<String, Object> message = Collections.singletonMap("text", text.trim());
             Map<String, Object> body = new HashMap<>();
             body.put("recipient", recipient);
-            body.put("messaging_type", "RESPONSE");
+            body.put("messaging_type", facebookConfig.getSendApi().getMessagingType());
             body.put("message", message);
 
             HttpHeaders headers = new HttpHeaders();
@@ -391,7 +395,7 @@ public class FacebookConversationService {
             return Result.success(resultDto);
         } catch (HttpClientErrorException.Unauthorized e) {
             log.warn("Facebook API returned 401 Unauthorized: {}", e.getMessage());
-            return Result.error(ErrorCode.UNAUTHORIZED, "Page Access Token không hợp lệ hoặc đã hết hạn");
+            return Result.error(ErrorCode.TOKEN_EXPIRED, "Token hết hạn hoặc đã bị thu hồi, vui lòng kết nối lại Page.");
         } catch (HttpClientErrorException e) {
             log.error("Facebook Send API error: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString(), e);
             return Result.error(ErrorCode.INTERNAL_ERROR, "Lỗi khi gửi tin nhắn: " + e.getStatusCode());
@@ -422,8 +426,8 @@ public class FacebookConversationService {
             return Result.error(ErrorCode.INVALID_REQUEST, "psid không được để trống");
         }
         try {
-            String url = FACEBOOK_GRAPH_API_BASE_URL + "/" + psid.trim() +
-                    "?fields=name,picture.type(large)" +
+            String url = facebookConfig.getGraphApi().getUrl() + "/" + psid.trim() +
+                    "?fields=" + facebookConfig.getUserProfile().getFields() +
                     "&access_token=" + pageAccessToken.trim();
 
             HttpHeaders headers = new HttpHeaders();
@@ -457,7 +461,7 @@ public class FacebookConversationService {
             return Result.success(resultDto);
         } catch (HttpClientErrorException.Unauthorized e) {
             log.warn("Facebook API returned 401 Unauthorized: {}", e.getMessage());
-            return Result.error(ErrorCode.UNAUTHORIZED, "Page Access Token không hợp lệ hoặc đã hết hạn");
+            return Result.error(ErrorCode.TOKEN_EXPIRED, "Token hết hạn hoặc đã bị thu hồi, vui lòng kết nối lại Page.");
         } catch (HttpClientErrorException e) {
             log.error("Facebook API error for user profile: status={}, body={}", e.getStatusCode(), e.getResponseBodyAsString(), e);
             return Result.error(ErrorCode.INTERNAL_ERROR, "Lỗi khi lấy thông tin người dùng: " + e.getStatusCode());
