@@ -26,6 +26,13 @@ public class FacebookConfig {
     private SendApi sendApi = new SendApi();
     private UserProfile userProfile = new UserProfile();
     private String platformName = "FACEBOOK";
+    /** Cấu hình webhook (verify token khi Facebook gọi GET để xác thực) */
+    private Webhook webhook = new Webhook();
+
+    @Data
+    public static class Webhook {
+        private String verifyToken = "minichat_webhook_verify_token";
+    }
 
     @Data
     public static class GraphApi {
