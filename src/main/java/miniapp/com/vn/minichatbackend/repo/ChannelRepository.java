@@ -20,5 +20,8 @@ public interface ChannelRepository extends JpaRepository<Channel, Long> {
 
     /** Tìm channel theo business và page (dùng cho reconnect cùng Page) */
     Optional<Channel> findByBusinessIdAndChannelId(Long businessId, String channelId);
+
+    /** Tìm channel theo Facebook Page ID (dùng cho webhook) */
+    Optional<Channel> findByChannelIdAndPlatform(String channelId, String platform);
 }
 
