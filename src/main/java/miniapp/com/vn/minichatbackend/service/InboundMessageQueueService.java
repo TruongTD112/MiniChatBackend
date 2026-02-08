@@ -1,12 +1,10 @@
 package miniapp.com.vn.minichatbackend.service;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import miniapp.com.vn.minichatbackend.config.WebhookQueueProperties;
 import miniapp.com.vn.minichatbackend.document.MessageDocument;
 import miniapp.com.vn.minichatbackend.dto.queue.InboundMessageQueuePayload;
 import org.redisson.api.RDelayedQueue;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -14,17 +12,21 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Đẩy tin nhắn nhận từ webhook vào Redis Delayed Queue.
- * Sau delaySeconds, Redisson chuyển tin sang main queue để listener xử lý.
+ * Chỉ tạo bean khi app.webhook.queue.enabled=true (cùng với messageDelayedQueue trong RedissonQueueConfig).
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
-@ConditionalOnBean(RDelayedQueue.class)
-    @ConditionalOnProperty(name = "app.webhook.queue.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.webhook.queue.enabled", havingValue = "true")
 public class InboundMessageQueueService {
 
     private final RDelayedQueue<InboundMessageQueuePayload> messageDelayedQueue;
     private final WebhookQueueProperties queueProperties;
+
+    public InboundMessageQueueService(RDelayedQueue<InboundMessageQueuePayload> messageDelayedQueue,
+                                      WebhookQueueProperties queueProperties) {
+        this.messageDelayedQueue = messageDelayedQueue;
+        this.queueProperties = queueProperties;
+    }
 
     /**
      * Đẩy tin vừa lưu Mongo vào delayed queue (sau delay sẽ sang main queue).
