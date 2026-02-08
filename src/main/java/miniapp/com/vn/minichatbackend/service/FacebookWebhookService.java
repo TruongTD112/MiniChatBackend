@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -46,6 +47,8 @@ public class FacebookWebhookService {
 
     @Autowired(required = false)
     private ConversationMessageBroadcastService conversationMessageBroadcastService;
+
+    private static final AtomicBoolean queueUnavailableLogged = new AtomicBoolean(false);
 
     /**
      * Xử lý payload webhook: chỉ xử lý entry có messaging (message từ user).
@@ -102,6 +105,10 @@ public class FacebookWebhookService {
                 log.info("Webhook: Saved message mid={} conversationId={} channelId={}", msg.getMid(), conversation.getId(), channel.getId());
                 if (inboundMessageQueueService != null) {
                     inboundMessageQueueService.offerToDelayedQueue(doc);
+                } else {
+                    if (queueUnavailableLogged.compareAndSet(false, true)) {
+                        log.warn("InboundMessageQueueService == null");
+                    }
                 }
                 if (conversationMessageBroadcastService != null) {
                     conversationMessageBroadcastService.broadcastFromDocument(doc);
