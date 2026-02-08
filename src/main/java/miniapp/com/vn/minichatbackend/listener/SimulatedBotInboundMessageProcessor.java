@@ -12,7 +12,6 @@ import miniapp.com.vn.minichatbackend.repo.MessageRepository;
 import miniapp.com.vn.minichatbackend.service.ChannelService;
 import miniapp.com.vn.minichatbackend.service.ConversationMessageBroadcastService;
 import miniapp.com.vn.minichatbackend.service.FacebookConversationService;
-import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -23,7 +22,6 @@ import java.time.Instant;
  */
 @Slf4j
 @Component
-@Primary
 @RequiredArgsConstructor
 public class SimulatedBotInboundMessageProcessor implements InboundMessageProcessor {
 

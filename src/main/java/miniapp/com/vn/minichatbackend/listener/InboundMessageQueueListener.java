@@ -3,10 +3,9 @@ package miniapp.com.vn.minichatbackend.listener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import miniapp.com.vn.minichatbackend.config.WebhookQueueProperties;
+import miniapp.com.vn.minichatbackend.dto.queue.ConversationTurn;
 import miniapp.com.vn.minichatbackend.dto.queue.InboundMessageQueuePayload;
 import org.redisson.api.RBlockingQueue;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -82,8 +81,9 @@ public class InboundMessageQueueListener {
         int maxN = Math.max(1, queueProperties.getConversationMaxMessages());
 
         try {
-            // Push right (RPUSH) bản tin vào list conversation, sau đó giữ chỉ N bản gần nhất (LTRIM -N -1)
-            redisTemplate.opsForList().rightPush(listKey, payload);
+            // Push right (RPUSH) lượt hội thoại (user) vào list, sau đó giữ chỉ N bản gần nhất (LTRIM -N -1)
+            ConversationTurn turn = new ConversationTurn("user", payload.getText() != null ? payload.getText() : "");
+            redisTemplate.opsForList().rightPush(listKey, turn);
             redisTemplate.opsForList().trim(listKey, -maxN, -1);
         } catch (Exception e) {
             log.error("Failed to update conversation recent list: conversationId={}", payload.getConversationId(), e);
