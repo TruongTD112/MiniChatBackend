@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Component
 @RequiredArgsConstructor
 @ConditionalOnBean(name = "messageMainQueue")
-    @ConditionalOnProperty(name = "app.webhook.queue.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.webhook.queue.enabled", havingValue = "true")
 public class InboundMessageQueueListener {
 
     private final RBlockingQueue<InboundMessageQueuePayload> messageMainQueue;
@@ -37,6 +37,7 @@ public class InboundMessageQueueListener {
 
     @PostConstruct
     public void start() {
+        log.info("InboundMessageQueueListener starting...");
         running.set(true);
         executor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "inbound-message-queue-listener");
