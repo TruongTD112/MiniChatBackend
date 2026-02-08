@@ -5,21 +5,19 @@ import miniapp.com.vn.minichatbackend.dto.queue.InboundMessageQueuePayload;
 import org.redisson.api.RBlockingQueue;
 import org.redisson.api.RDelayedQueue;
 import org.redisson.api.RedissonClient;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Cấu hình Redisson queue và InboundMessageQueueService.
- * Không dùng điều kiện ở class vì khi bật @ConditionalOnProperty/@ConditionalOnBean ở đây config không load (property/bean đánh giá sớm).
- * Đặt điều kiện ở từng @Bean: chỉ tạo queue khi app.webhook.queue.enabled=true.
+ * Cấu hình Redisson queue. Tạo messageMainQueue/messageDelayedQueue ngay khi có RedissonClient
+ * (không gắn @ConditionalOnProperty) để tránh trên Railway điều kiện đánh giá sai thứ tự khiến bean không được tạo.
+ * Bật/tắt queue vẫn do app.webhook.queue.enabled và do InboundMessageQueueService / InboundMessageQueueListener có @ConditionalOnProperty.
  */
 @Slf4j
 @Configuration
 public class RedissonQueueConfig {
 
     @Bean
-    @ConditionalOnProperty(name = "app.webhook.queue.enabled", havingValue = "true")
     public RBlockingQueue<InboundMessageQueuePayload> messageMainQueue(
             RedissonClient redisson,
             WebhookQueueProperties queueProperties) {
@@ -29,7 +27,6 @@ public class RedissonQueueConfig {
     }
 
     @Bean
-    @ConditionalOnProperty(name = "app.webhook.queue.enabled", havingValue = "true")
     public RDelayedQueue<InboundMessageQueuePayload> messageDelayedQueue(
             RedissonClient redisson,
             RBlockingQueue<InboundMessageQueuePayload> mainQueue) {
