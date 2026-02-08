@@ -23,8 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnBean(name = "messageMainQueue")
-@ConditionalOnProperty(name = "app.webhook.queue.enabled", havingValue = "true")
+//@ConditionalOnBean(name = "messageMainQueue")
+//@ConditionalOnProperty(name = "app.webhook.queue.enabled", havingValue = "true")
 public class InboundMessageQueueListener {
 
     private final RBlockingQueue<InboundMessageQueuePayload> messageMainQueue;
