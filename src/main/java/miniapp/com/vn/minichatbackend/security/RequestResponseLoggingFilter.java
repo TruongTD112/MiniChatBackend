@@ -13,7 +13,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.web.util.ContentCachingRequestWrapper;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
 import java.io.IOException;
@@ -62,21 +61,19 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Wrap request and response to enable multiple reads
-        ContentCachingRequestWrapper wrappedRequest = new ContentCachingRequestWrapper(request, CACHE_LIMIT);
+        // Wrap request (reads & caches body now so we can log before doFilter) and response
+        CachedBodyRequestWrapper wrappedRequest = new CachedBodyRequestWrapper(request, CACHE_LIMIT);
         ContentCachingResponseWrapper wrappedResponse = new ContentCachingResponseWrapper(response);
 
         long startTime = System.currentTimeMillis();
 
         try {
-            // Log request details
+            // Log full request (headers + body) before controller runs
             logRequest(wrappedRequest, requestId);
 
-            // Continue with the filter chain
             filterChain.doFilter(wrappedRequest, wrappedResponse);
 
         } finally {
-            // Log response details
             logResponse(wrappedResponse, requestId, startTime);
 
             // Copy response body back to original response
@@ -87,29 +84,26 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
         }
     }
 
-    private void logRequest(ContentCachingRequestWrapper request, String requestId) {
+    /** Log full request (headers + body) before controller runs. */
+    private void logRequest(CachedBodyRequestWrapper request, String requestId) {
         String method = request.getMethod();
         String uri = request.getRequestURI();
         String queryString = request.getQueryString();
         String fullUrl = queryString != null ? uri + "?" + queryString : uri;
 
-        // Collect and format request headers
         Map<String, String> headers = new HashMap<>();
         Enumeration<String> headerNames = request.getHeaderNames();
         while (headerNames.hasMoreElements()) {
             String headerName = headerNames.nextElement();
-            String headerValue = request.getHeader(headerName);
-            headers.put(headerName, headerValue);
+            headers.put(headerName, request.getHeader(headerName));
         }
 
         log.info("=== REQUEST ===\nMethod: {}\nURL: {}\nHeaders: {}\nRequestId: {}",
                 method, fullUrl, LoggingUtils.formatHeaders(headers), requestId);
 
-        // Log request body if present and loggable
-        String contentType = request.getContentType();
-//        if (LoggingUtils.isLoggableContentType(contentType)) {
         byte[] content = request.getContentAsByteArray();
         if (content.length > 0) {
+            String contentType = request.getContentType();
             String body = new String(content, StandardCharsets.UTF_8);
             String maskedBody = LoggingUtils.maskSensitiveData(body);
             String truncatedBody = LoggingUtils.truncateBody(maskedBody);
