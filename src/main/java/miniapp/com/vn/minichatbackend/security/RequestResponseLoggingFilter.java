@@ -61,17 +61,29 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Wrap request (reads & caches body now so we can log before doFilter) and response
-        CachedBodyRequestWrapper wrappedRequest = new CachedBodyRequestWrapper(request, CACHE_LIMIT);
+        // Wrap response immediately as we need to cache response body in finally block
         ContentCachingResponseWrapper wrappedResponse = new ContentCachingResponseWrapper(response);
 
         long startTime = System.currentTimeMillis();
 
         try {
-            // Log full request (headers + body) before controller runs
-            logRequest(wrappedRequest, requestId);
+            String contentType = request.getContentType();
+            boolean isMultipart = contentType != null && contentType.toLowerCase().startsWith("multipart/");
 
-            filterChain.doFilter(wrappedRequest, wrappedResponse);
+            if (isMultipart) {
+                // For multipart requests, do NOT wrap the request (so standard MultipartResolver can work)
+                // Log headers only, skip body
+                logRequestHeadersOnly(request, requestId);
+                filterChain.doFilter(request, wrappedResponse);
+            } else {
+                // Wrap request (reads & caches body now so we can log before doFilter)
+                CachedBodyRequestWrapper wrappedRequest = new CachedBodyRequestWrapper(request, CACHE_LIMIT);
+                
+                // Log full request (headers + body) before controller runs
+                logRequest(wrappedRequest, requestId);
+    
+                filterChain.doFilter(wrappedRequest, wrappedResponse);
+            }
 
         } finally {
             logResponse(wrappedResponse, requestId, startTime);
@@ -82,6 +94,24 @@ public class RequestResponseLoggingFilter extends OncePerRequestFilter {
             // Clear MDC to prevent memory leaks
             MDC.clear();
         }
+    }
+
+    /** Log request headers only (for multipart requests). */
+    private void logRequestHeadersOnly(HttpServletRequest request, String requestId) {
+        String method = request.getMethod();
+        String uri = request.getRequestURI();
+        String queryString = request.getQueryString();
+        String fullUrl = queryString != null ? uri + "?" + queryString : uri;
+
+        Map<String, String> headers = new HashMap<>();
+        Enumeration<String> headerNames = request.getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String headerName = headerNames.nextElement();
+            headers.put(headerName, request.getHeader(headerName));
+        }
+
+        log.info("=== REQUEST (Multipart) ===\nMethod: {}\nURL: {}\nHeaders: {}\nRequestId: {}\n[Body logging skipped for multipart request]",
+                method, fullUrl, LoggingUtils.formatHeaders(headers), requestId);
     }
 
     /** Log full request (headers + body) before controller runs. */
