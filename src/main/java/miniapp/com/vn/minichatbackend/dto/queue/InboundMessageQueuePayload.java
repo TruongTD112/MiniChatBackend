@@ -30,4 +30,7 @@ public class InboundMessageQueuePayload implements Serializable {
     private String platform;
     /** Thời điểm tạo tin (ISO-8601 string) */
     private String createdAt;
+    
+    /** Timestamp dùng để debounce (epoch millis) */
+    private Long debounceTimestamp;
 }
