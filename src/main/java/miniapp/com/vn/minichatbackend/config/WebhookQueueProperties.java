@@ -25,4 +25,7 @@ public class WebhookQueueProperties {
     
     /** Prefix for debounce timestamp key: {prefix}{conversationId} */
     private String debounceKeyPrefix = "minichat:debounce:timestamp:";
+
+    /** Prefix for debounce buffer list: {prefix}{conversationId} = list of messages in window */
+    private String debounceBufferPrefix = "minichat:debounce:buffer:";
 }

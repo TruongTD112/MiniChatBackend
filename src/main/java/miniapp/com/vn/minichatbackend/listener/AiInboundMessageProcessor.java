@@ -97,41 +97,56 @@ public class AiInboundMessageProcessor implements InboundMessageProcessor {
         }
 
         String responseText = aiResponse.getData().getResponse();
-
-        pushAssistantTurnToCache(payload.getConversationId(), responseText);
-
-        MessageDocument outbound = MessageDocument.builder()
-                .conversationId(payload.getConversationId())
-                .channelId(payload.getChannelId())
-                .externalMessageId(null)
-                .senderId(channel.getChannelId())
-                .recipientId(payload.getSenderId())
-                .direction("OUTBOUND")
-                .text(responseText)
-                .platform(PLATFORM_FACEBOOK)
-                .createdAt(Instant.now())
-                .build();
-
-        try {
-            messageRepository.save(outbound);
-            conversationMessageBroadcastService.broadcastFromDocument(outbound);
-        } catch (Exception e) {
-            log.error("AiInbound: failed to save/broadcast outbound conversationId={}", payload.getConversationId(), e);
+        if (responseText == null) {
+            responseText = "";
         }
 
-        if (PLATFORM_FACEBOOK.equalsIgnoreCase(channel.getPlatform())) {
-            String pageAccessToken = channelService.getPageAccessToken(channel.getId());
-            if (pageAccessToken != null) {
-                Result<SendMessageResponse> sendResult = facebookConversationService.sendMessage(
-                        pageAccessToken,
-                        payload.getSenderId(),
-                        responseText
-                );
-                if (!sendResult.isSuccess()) {
-                    log.warn("AiInbound: Facebook send failed conversationId={} {}", payload.getConversationId(), sendResult.getMessage());
+        // Split by newline
+        String[] splitMessages = responseText.split("\\R"); // \R matches any Unicode linebreak sequence
+
+        for (String msgPart : splitMessages) {
+            if (msgPart == null || msgPart.trim().isEmpty()) {
+                continue;
+            }
+
+            // 1. Context Cache (Redis)
+            pushAssistantTurnToCache(payload.getConversationId(), msgPart);
+
+            // 2. DB (Mongo) & Broadcast (WebSocket)
+            MessageDocument outbound = MessageDocument.builder()
+                    .conversationId(payload.getConversationId())
+                    .channelId(payload.getChannelId())
+                    .externalMessageId(null)
+                    .senderId(channel.getChannelId())
+                    .recipientId(payload.getSenderId())
+                    .direction("OUTBOUND")
+                    .text(msgPart)
+                    .platform(PLATFORM_FACEBOOK)
+                    .createdAt(Instant.now())
+                    .build();
+
+            try {
+                messageRepository.save(outbound);
+                conversationMessageBroadcastService.broadcastFromDocument(outbound);
+            } catch (Exception e) {
+                log.error("AiInbound: failed to save/broadcast outbound conversationId={}", payload.getConversationId(), e);
+            }
+
+            // 3. Send to Facebook
+            if (PLATFORM_FACEBOOK.equalsIgnoreCase(channel.getPlatform())) {
+                String pageAccessToken = channelService.getPageAccessToken(channel.getId());
+                if (pageAccessToken != null) {
+                    Result<SendMessageResponse> sendResult = facebookConversationService.sendMessage(
+                            pageAccessToken,
+                            payload.getSenderId(),
+                            msgPart
+                    );
+                    if (!sendResult.isSuccess()) {
+                        log.warn("AiInbound: Facebook send failed conversationId={} {}", payload.getConversationId(), sendResult.getMessage());
+                    }
+                } else {
+                    log.warn("AiInbound: no page token for channelId={}", channel.getId());
                 }
-            } else {
-                log.warn("AiInbound: no page token for channelId={}", channel.getId());
             }
         }
     }
