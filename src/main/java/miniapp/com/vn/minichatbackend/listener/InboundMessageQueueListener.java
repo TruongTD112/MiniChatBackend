@@ -75,45 +75,68 @@ public class InboundMessageQueueListener {
     }
 
     private void processPayload(InboundMessageQueuePayload payload) {
+        // 1. Validation
         if (payload == null || payload.getConversationId() == null) {
             return;
         }
 
-        // 1. Always update conversation history (cache) first
-        String listKey = queueProperties.getConversationRecentPrefix() + payload.getConversationId();
-        int maxN = Math.max(1, queueProperties.getConversationMaxMessages());
+        String conversationId = payload.getConversationId().toString();
+        String finalMessageText = payload.getText() != null ? payload.getText() : "";
 
-        try {
-            // Push right (RPUSH) lượt hội thoại (user) vào list, sau đó giữ chỉ N bản gần nhất (LTRIM -N -1)
-            ConversationTurn turn = new ConversationTurn("user", payload.getText() != null ? payload.getText() : "");
-            redisTemplate.opsForList().rightPush(listKey, turn);
-            redisTemplate.opsForList().trim(listKey, -maxN, -1);
-        } catch (Exception e) {
-            log.error("Failed to update conversation recent list: conversationId={}", payload.getConversationId(), e);
-        }
-        
-        // 2. Check debounce
+        // 2. Check debounce & Aggregate
         if (payload.getDebounceTimestamp() != null) {
-             String debounceKey = queueProperties.getDebounceKeyPrefix() + payload.getConversationId();
+             String debounceKey = queueProperties.getDebounceKeyPrefix() + conversationId;
              try {
                  Object value = redisTemplate.opsForValue().get(debounceKey);
                  if (value instanceof Number) {
                      long latest = ((Number) value).longValue();
                      if (payload.getDebounceTimestamp() < latest) {
-                         log.info("Debouncing message: conversationId={} msgTimestamp={} latestTimestamp={} -> SKIP processing (history updated)",
-                                 payload.getConversationId(), payload.getDebounceTimestamp(), latest);
+                         log.info("Debouncing message: conversationId={} msgTimestamp={} latestTimestamp={} -> SKIP processing (buffered)",
+                                 conversationId, payload.getDebounceTimestamp(), latest);
                          return;
                      }
                  }
+                 
+                 // This is the latest message -> Aggregate from buffer
+                 String bufferKey = queueProperties.getDebounceBufferPrefix() + conversationId;
+                 java.util.List<Object> buffered = redisTemplate.opsForList().range(bufferKey, 0, -1);
+                 redisTemplate.delete(bufferKey);
+                 
+                 if (buffered != null && !buffered.isEmpty()) {
+                     StringBuilder sb = new StringBuilder();
+                     for (Object obj : buffered) {
+                         if (obj != null) {
+                             if (sb.length() > 0) sb.append("\n");
+                             sb.append(obj.toString());
+                         }
+                     }
+                     finalMessageText = sb.toString();
+                     payload.setText(finalMessageText);
+                     log.debug("Aggregated messages for conversationId={}: {}", conversationId, finalMessageText);
+                 }
+                 
              } catch (Exception e) {
-                 log.error("Failed to check debounce key", e);
+                 log.error("Failed to check debounce key / aggregate", e);
              }
         }
 
+        // 3. Update conversation history (cache) with FINAL aggregated text
+        String listKey = queueProperties.getConversationRecentPrefix() + conversationId;
+        int maxN = Math.max(1, queueProperties.getConversationMaxMessages());
+
+        try {
+            ConversationTurn turn = new ConversationTurn("user", finalMessageText);
+            redisTemplate.opsForList().rightPush(listKey, turn);
+            redisTemplate.opsForList().trim(listKey, -maxN, -1);
+        } catch (Exception e) {
+            log.error("Failed to update conversation recent list: conversationId={}", conversationId, e);
+        }
+
+        // 4. Process
         try {
             inboundMessageProcessor.process(payload);
         } catch (Exception e) {
-            log.error("Processor error for messageId={} conversationId={}", payload.getMessageId(), payload.getConversationId(), e);
+            log.error("Processor error for messageId={} conversationId={}", payload.getMessageId(), conversationId, e);
         }
     }
 }

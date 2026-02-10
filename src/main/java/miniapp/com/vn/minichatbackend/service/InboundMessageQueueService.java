@@ -42,14 +42,23 @@ public class InboundMessageQueueService {
         long timestamp = System.currentTimeMillis();
         long delay = Math.max(1, queueProperties.getDelaySeconds());
         
-        // Save debounce timestamp to Redis
+        // Save debounce timestamp and buffer message to Redis
         if (doc.getConversationId() != null) {
-            String debounceKey = queueProperties.getDebounceKeyPrefix() + doc.getConversationId();
+            String conversationId = doc.getConversationId().toString();
+            String debounceKey = queueProperties.getDebounceKeyPrefix() + conversationId;
+            String bufferKey = queueProperties.getDebounceBufferPrefix() + conversationId;
+            
             try {
-                // Set with TTL = delay * 2 to be safe
+                // 1. Update latest timestamp
                 redisTemplate.opsForValue().set(debounceKey, timestamp, delay * 2, TimeUnit.SECONDS);
+                
+                // 2. Buffer message text
+                if (doc.getText() != null && !doc.getText().isEmpty()) {
+                    redisTemplate.opsForList().rightPush(bufferKey, doc.getText());
+                    redisTemplate.expire(bufferKey, delay * 5, TimeUnit.SECONDS);
+                }
             } catch (Exception e) {
-                log.warn("Failed to set debounce timestamp for conversationId={}", doc.getConversationId(), e);
+                log.warn("Failed to update debounce key/buffer for conversationId={}", conversationId, e);
             }
         }
 
