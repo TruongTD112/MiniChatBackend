@@ -17,6 +17,9 @@ public class SendMessageRequest {
     @Schema(description = "Page-Scoped User ID (PSID) - ID người nhận tin nhắn, lấy từ conversation participants/sender", example = "1254459154682919", required = true)
     private String recipientId;
 
-    @Schema(description = "Nội dung tin nhắn text", example = "Xin chào! Chúng tôi đã nhận được tin nhắn của bạn.", required = true)
+    @Schema(description = "Nội dung tin nhắn text (Nếu gửi kèm ảnh, text sẽ được gửi trước)", example = "Xin chào! Chúng tôi đã nhận được tin nhắn của bạn.", required = false)
     private String text;
+
+    @Schema(description = "URL ảnh để gửi (định dạng .jpg, .png, .gif, ...)", example = "https://example.com/image.jpg", required = false)
+    private String imageUrl;
 }

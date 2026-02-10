@@ -368,19 +368,20 @@ public class FacebookController {
 	@PostMapping("/messages/send")
 	@Operation(
 		summary = "Gửi tin nhắn từ Fanpage đến người dùng",
-		description = "Gửi tin nhắn text từ Fanpage đến người dùng qua Facebook Messenger. " +
-			"recipientId là Page-Scoped User ID (PSID), lấy từ conversation participants hoặc sender."
+		description = "Gửi tin nhắn text hoặc ảnh từ Fanpage đến người dùng qua Facebook Messenger. " +
+			"recipientId là Page-Scoped User ID (PSID), lấy từ conversation participants hoặc sender. " +
+			"Nếu gửi cả text và imageUrl, text sẽ được gửi trước."
 	)
 	@ApiResponses(value = {
 		@ApiResponse(responseCode = "200", description = "Gửi tin nhắn thành công",
 			content = @Content(schema = @Schema(implementation = SendMessageResponse.class))),
-		@ApiResponse(responseCode = "400", description = "Dữ liệu không hợp lệ - thiếu channelId, recipientId hoặc text"),
+		@ApiResponse(responseCode = "400", description = "Dữ liệu không hợp lệ - thiếu channelId, recipientId, text hoặc imageUrl"),
 		@ApiResponse(responseCode = "404", description = "Channel không tồn tại hoặc không có Page Access Token"),
 		@ApiResponse(responseCode = "401", description = "Page Access Token không hợp lệ hoặc đã hết hạn"),
 		@ApiResponse(responseCode = "500", description = "Lỗi server - Không thể gửi tin nhắn qua Facebook API")
 	})
 	public Result<SendMessageResponse> sendMessage(
-		@Parameter(description = "channelId: ID Channel (Fanpage); recipientId: PSID người nhận; text: nội dung tin nhắn", required = true)
+		@Parameter(description = "channelId: ID Channel (Fanpage); recipientId: PSID người nhận; text: nội dung tin nhắn; imageUrl: link ảnh", required = true)
 		@RequestBody SendMessageRequest request) {
 		if (request == null || request.getChannelId() == null) {
 			log.warn("Send message request is null or missing channelId");
@@ -392,10 +393,14 @@ public class FacebookController {
 			return Result.error(miniapp.com.vn.minichatbackend.common.ErrorCode.INVALID_REQUEST,
 				"recipientId (PSID) không được để trống");
 		}
-		if (request.getText() == null || request.getText().trim().isEmpty()) {
-			log.warn("Send message request missing text");
+		
+		boolean hasText = request.getText() != null && !request.getText().trim().isEmpty();
+		boolean hasImage = request.getImageUrl() != null && !request.getImageUrl().trim().isEmpty();
+
+		if (!hasText && !hasImage) {
+			log.warn("Send message request missing text and imageUrl");
 			return Result.error(miniapp.com.vn.minichatbackend.common.ErrorCode.INVALID_REQUEST,
-				"text không được để trống");
+				"text hoặc imageUrl không được để trống");
 		}
 
 		Channel channel = channelService.getChannelById(request.getChannelId());
@@ -420,7 +425,8 @@ public class FacebookController {
 		Result<SendMessageResponse> result = facebookConversationService.sendMessage(
 			pageAccessToken,
 			request.getRecipientId().trim(),
-			request.getText().trim()
+			request.getText() != null ? request.getText().trim() : null,
+			request.getImageUrl() != null ? request.getImageUrl().trim() : null
 		);
 		if (result.isSuccess()) {
 			log.info("Successfully sent message to recipientId={}, channelId={}",

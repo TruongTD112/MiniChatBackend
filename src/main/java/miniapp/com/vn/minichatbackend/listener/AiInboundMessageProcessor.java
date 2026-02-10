@@ -109,21 +109,31 @@ public class AiInboundMessageProcessor implements InboundMessageProcessor {
                 continue;
             }
 
+            String trimmedMsg = msgPart.trim();
+            boolean isImage = isImageUrl(trimmedMsg);
+
             // 1. Context Cache (Redis)
-            pushAssistantTurnToCache(payload.getConversationId(), msgPart);
+            pushAssistantTurnToCache(payload.getConversationId(), trimmedMsg);
 
             // 2. DB (Mongo) & Broadcast (WebSocket)
-            MessageDocument outbound = MessageDocument.builder()
+            MessageDocument.MessageDocumentBuilder outboundBuilder = MessageDocument.builder()
                     .conversationId(payload.getConversationId())
                     .channelId(payload.getChannelId())
                     .externalMessageId(null)
                     .senderId(channel.getChannelId())
                     .recipientId(payload.getSenderId())
                     .direction("OUTBOUND")
-                    .text(msgPart)
                     .platform(PLATFORM_FACEBOOK)
-                    .createdAt(Instant.now())
-                    .build();
+                    .createdAt(Instant.now());
+
+            if (isImage) {
+                outboundBuilder.text("[Image]"); // Display placeholder in chat history for image
+                outboundBuilder.attachments(List.of(new MessageDocument.AttachmentInfo("image", trimmedMsg)));
+            } else {
+                outboundBuilder.text(trimmedMsg);
+            }
+
+            MessageDocument outbound = outboundBuilder.build();
 
             try {
                 messageRepository.save(outbound);
@@ -136,11 +146,24 @@ public class AiInboundMessageProcessor implements InboundMessageProcessor {
             if (PLATFORM_FACEBOOK.equalsIgnoreCase(channel.getPlatform())) {
                 String pageAccessToken = channelService.getPageAccessToken(channel.getId());
                 if (pageAccessToken != null) {
-                    Result<SendMessageResponse> sendResult = facebookConversationService.sendMessage(
-                            pageAccessToken,
-                            payload.getSenderId(),
-                            msgPart
-                    );
+                    Result<SendMessageResponse> sendResult;
+                    if (isImage) {
+                        // Send as image attachment
+                        sendResult = facebookConversationService.sendMessage(
+                                pageAccessToken,
+                                payload.getSenderId(),
+                                null,
+                                trimmedMsg
+                        );
+                    } else {
+                        // Send as text
+                        sendResult = facebookConversationService.sendMessage(
+                                pageAccessToken,
+                                payload.getSenderId(),
+                                trimmedMsg,
+                                null
+                        );
+                    }
                     if (!sendResult.isSuccess()) {
                         log.warn("AiInbound: Facebook send failed conversationId={} {}", payload.getConversationId(), sendResult.getMessage());
                     }
@@ -149,6 +172,16 @@ public class AiInboundMessageProcessor implements InboundMessageProcessor {
                 }
             }
         }
+    }
+
+    private boolean isImageUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+        String lower = url.toLowerCase();
+        return lower.startsWith("http") && (
+                lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
+                lower.endsWith(".png") || lower.endsWith(".gif") ||
+                lower.endsWith(".webp") || lower.endsWith(".bmp")
+        );
     }
 
     private List<AiCoreChatRequest.ConversationTurnItem> getConversationsFromCache(Long conversationId) {

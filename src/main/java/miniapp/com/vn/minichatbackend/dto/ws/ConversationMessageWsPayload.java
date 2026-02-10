@@ -27,4 +27,14 @@ public class ConversationMessageWsPayload {
     private String platform;
     /** ISO-8601 */
     private String createdAt;
+
+    private java.util.List<AttachmentInfo> attachments;
+
+    @lombok.Data
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class AttachmentInfo {
+        private String type;
+        private String url;
+    }
 }
