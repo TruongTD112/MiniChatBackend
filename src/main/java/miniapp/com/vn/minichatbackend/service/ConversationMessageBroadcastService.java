@@ -49,6 +49,9 @@ public class ConversationMessageBroadcastService {
                 .recipientId(doc.getRecipientId())
                 .platform(doc.getPlatform())
                 .createdAt(doc.getCreatedAt() != null ? doc.getCreatedAt().toString() : null)
+                .attachments(doc.getAttachments() != null ? doc.getAttachments().stream()
+                        .map(a -> new ConversationMessageWsPayload.AttachmentInfo(a.getType(), a.getUrl()))
+                        .collect(java.util.stream.Collectors.toList()) : null)
                 .build();
         broadcastNewMessage(doc.getChannelId(), payload);
     }

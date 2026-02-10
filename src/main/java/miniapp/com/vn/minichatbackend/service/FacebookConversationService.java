@@ -345,10 +345,11 @@ public class FacebookConversationService {
      *
      * @param pageAccessToken Page Access Token (đã giải mã)
      * @param recipientPsid   Page-Scoped User ID (PSID) người nhận
-     * @param text            Nội dung tin nhắn
+     * @param text            Nội dung tin nhắn text (optional if imageUrl is present)
+     * @param imageUrl        URL ảnh/attachment (optional if text is present)
      * @return Result chứa messageId, recipientId hoặc error
      */
-    public Result<SendMessageResponse> sendMessage(String pageAccessToken, String recipientPsid, String text) {
+    public Result<SendMessageResponse> sendMessage(String pageAccessToken, String recipientPsid, String text, String imageUrl) {
         if (pageAccessToken == null || pageAccessToken.trim().isEmpty()) {
             log.warn("Page access token is null or empty");
             return Result.error(ErrorCode.INVALID_REQUEST, "Page Access Token không được để trống");
@@ -357,14 +358,58 @@ public class FacebookConversationService {
             log.warn("Recipient PSID is null or empty");
             return Result.error(ErrorCode.INVALID_REQUEST, "recipientId (PSID) không được để trống");
         }
-        if (text == null || text.trim().isEmpty()) {
-            log.warn("Message text is null or empty");
-            return Result.error(ErrorCode.INVALID_REQUEST, "Nội dung tin nhắn không được để trống");
+        
+        boolean hasText = text != null && !text.trim().isEmpty();
+        boolean hasImage = imageUrl != null && !imageUrl.trim().isEmpty();
+        
+        if (!hasText && !hasImage) {
+            log.warn("Both text and imageUrl are null or empty");
+            return Result.error(ErrorCode.INVALID_REQUEST, "Nội dung tin nhắn hoặc URL ảnh không được để trống");
         }
+
+        Result<SendMessageResponse> lastResult = null;
+
+        // 1. Send text message if present
+        if (hasText) {
+            Map<String, Object> message = Collections.singletonMap("text", text.trim());
+            lastResult = callFacebookSendApi(pageAccessToken, recipientPsid, message);
+            if (!lastResult.isSuccess()) {
+                return lastResult;
+            }
+        }
+
+        // 2. Send image message if present
+        if (hasImage) {
+            Map<String, Object> imagePayload = new HashMap<>();
+            imagePayload.put("url", imageUrl.trim());
+            imagePayload.put("is_reusable", true);
+
+            Map<String, Object> attachment = new HashMap<>();
+            attachment.put("type", "image");
+            attachment.put("payload", imagePayload);
+
+            Map<String, Object> message = Collections.singletonMap("attachment", attachment);
+            lastResult = callFacebookSendApi(pageAccessToken, recipientPsid, message);
+        }
+
+        return lastResult;
+    }
+
+    /**
+     * Overload duy trì compatibility cho các chỗ cũ chỉ gửi text.
+     */
+    public Result<SendMessageResponse> sendMessage(String pageAccessToken, String recipientPsid, String text) {
+        return sendMessage(pageAccessToken, recipientPsid, text, null);
+    }
+
+    /**
+     * Helper thực hiện gọi REST API tới Facebook Send API.
+     */
+    private Result<SendMessageResponse> callFacebookSendApi(String pageAccessToken, String recipientPsid, Map<String, Object> message) {
         try {
             String url = facebookConfig.getGraphApi().getUrl() + "/me/messages?access_token=" + pageAccessToken.trim();
             Map<String, Object> recipient = Collections.singletonMap("id", recipientPsid.trim());
-            Map<String, Object> message = Collections.singletonMap("text", text.trim());
+            
             Map<String, Object> body = new HashMap<>();
             body.put("recipient", recipient);
             body.put("messaging_type", facebookConfig.getSendApi().getMessagingType());
@@ -403,7 +448,7 @@ public class FacebookConversationService {
             log.error("Error calling Facebook Send API", e);
             return Result.error(ErrorCode.INTERNAL_ERROR, "Không thể kết nối đến Facebook API: " + e.getMessage());
         } catch (Exception e) {
-            log.error("Unexpected error while sending message", e);
+            log.error("Unexpected error while calling Facebook API", e);
             return Result.error(ErrorCode.INTERNAL_ERROR, "Lỗi không mong đợi: " + e.getMessage());
         }
     }
