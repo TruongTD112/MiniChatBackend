@@ -28,4 +28,10 @@ public class WebhookQueueProperties {
 
     /** Prefix for debounce buffer list: {prefix}{conversationId} = list of messages in window */
     private String debounceBufferPrefix = "minichat:debounce:buffer:";
+
+    /** Số lượng thread core xử lý tin nhắn song song */
+    private int workerPoolCoreSize = 5;
+
+    /** Số lượng thread tối đa xử lý tin nhắn song song */
+    private int workerPoolMaxSize = 20;
 }
