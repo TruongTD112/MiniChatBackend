@@ -6,6 +6,7 @@ import miniapp.com.vn.minichatbackend.config.WebhookQueueProperties;
 import miniapp.com.vn.minichatbackend.dto.queue.ConversationTurn;
 import miniapp.com.vn.minichatbackend.dto.queue.InboundMessageQueuePayload;
 import org.redisson.api.RBlockingQueue;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -23,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Component
 @RequiredArgsConstructor
 //@ConditionalOnBean(name = "messageMainQueue")
-//@ConditionalOnProperty(name = "app.webhook.queue.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.webhook.queue.listener-enabled", havingValue = "true")
 public class InboundMessageQueueListener {
 
     private final RBlockingQueue<InboundMessageQueuePayload> messageMainQueue;

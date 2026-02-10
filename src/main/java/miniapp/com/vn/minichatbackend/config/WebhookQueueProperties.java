@@ -12,7 +12,8 @@ import org.springframework.context.annotation.Configuration;
 @ConfigurationProperties(prefix = "app.webhook.queue")
 public class WebhookQueueProperties {
 
-    private boolean enabled = true;
+    private boolean producerEnabled = true;
+    private boolean listenerEnabled = true;
     /** Thời gian (giây) tin nằm trong delayed queue trước khi chuyển sang main queue */
     private long delaySeconds = 5L;
     /** Tên key Redis của main queue (list) */

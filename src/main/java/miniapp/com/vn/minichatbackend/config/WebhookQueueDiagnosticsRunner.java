@@ -35,31 +35,43 @@ public class WebhookQueueDiagnosticsRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        boolean configEnabled = queueProperties.isEnabled();
+        boolean producerEnabled = queueProperties.isProducerEnabled();
+        boolean listenerEnabled = queueProperties.isListenerEnabled();
         boolean redissonPresent = hasBeanOfType(REDISSON_CLIENT_CLASS);
         boolean queueServicePresent = applicationContext.getBeanProvider(InboundMessageQueueService.class).getIfAvailable() != null;
         boolean listenerPresent = applicationContext.getBeanProvider(InboundMessageQueueListener.class).getIfAvailable() != null;
 
         log.info("--- Webhook queue diagnostics ---");
-        log.info("  app.webhook.queue.enabled = {}", configEnabled);
+        log.info("  app.webhook.queue.producer-enabled = {}", producerEnabled);
+        log.info("  app.webhook.queue.listener-enabled = {}", listenerEnabled);
         log.info("  RedissonClient bean       = {}", redissonPresent ? "YES" : "NO");
         log.info("  InboundMessageQueueService = {}", queueServicePresent ? "YES" : "NO");
         log.info("  InboundMessageQueueListener = {}", listenerPresent ? "YES (started)" : "NO (will not start)");
 
         if (queueServicePresent && listenerPresent) {
-            log.info("  => Webhook queue: ACTIVE (messages will be pushed to delayed queue, listener running)");
+            log.info("  => Webhook queue: ACTIVE (producer & listener both active)");
         } else {
-            if (!configEnabled) {
-                log.info("  => Webhook queue: DISABLED (app.webhook.queue.enabled=false). InboundMessageQueueListener will not start.");
-            } else if (!redissonPresent) {
+            if (!producerEnabled && !listenerEnabled) {
+                 log.info("  => Webhook queue: DISABLED (both producer and listener disabled).");
+            } else {
+                 if (producerEnabled && !queueServicePresent) {
+                     log.warn("  => Producer ENABLED but InboundMessageQueueService missing (maybe Redisson missing?)");
+                 } else if (!producerEnabled) {
+                     log.info("  => Producer DISABLED.");
+                 }
+
+                 if (listenerEnabled && !listenerPresent) {
+                     log.warn("  => Listener ENABLED but InboundMessageQueueListener missing (maybe Redisson missing?)");
+                 } else if (!listenerEnabled) {
+                     log.info("  => Listener DISABLED.");
+                 }
+            }
+
+            if (!redissonPresent && (producerEnabled || listenerEnabled)) {
                 String redisHost = environment.getProperty("spring.data.redis.host", "?");
                 String redisUrl = environment.getProperty("REDIS_URL", environment.getProperty("spring.data.redis.url", ""));
-                log.warn("  => Webhook queue: UNAVAILABLE - RedissonClient not found. InboundMessageQueueListener will not start.");
-                log.warn("  => On Railway: redis.host={}, REDIS_URL set={}. Ensure Redis is linked and reachable at startup (same network, correct SPRING_DATA_REDIS_* or REDIS_URL).", redisHost, !redisUrl.isEmpty());
-            } else if (!listenerPresent) {
-                log.warn("  => Webhook queue: UNAVAILABLE - InboundMessageQueueListener bean missing (need messageMainQueue). InboundMessageQueueListener will not start.");
-            } else {
-                log.warn("  => Webhook queue: UNAVAILABLE - InboundMessageQueueService bean missing. InboundMessageQueueListener will not start.");
+                log.warn("  => RedissonClient not found. Queue features will not work.");
+                log.warn("  => On Railway: redis.host={}, REDIS_URL set={}. Ensure Redis is linked.", redisHost, !redisUrl.isEmpty());
             }
         }
         log.info("--------------------------------");
