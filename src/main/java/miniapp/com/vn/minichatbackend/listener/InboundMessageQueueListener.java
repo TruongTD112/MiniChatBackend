@@ -78,6 +78,8 @@ public class InboundMessageQueueListener {
         if (payload == null || payload.getConversationId() == null) {
             return;
         }
+
+        // 1. Always update conversation history (cache) first
         String listKey = queueProperties.getConversationRecentPrefix() + payload.getConversationId();
         int maxN = Math.max(1, queueProperties.getConversationMaxMessages());
 
@@ -88,6 +90,24 @@ public class InboundMessageQueueListener {
             redisTemplate.opsForList().trim(listKey, -maxN, -1);
         } catch (Exception e) {
             log.error("Failed to update conversation recent list: conversationId={}", payload.getConversationId(), e);
+        }
+        
+        // 2. Check debounce
+        if (payload.getDebounceTimestamp() != null) {
+             String debounceKey = queueProperties.getDebounceKeyPrefix() + payload.getConversationId();
+             try {
+                 Object value = redisTemplate.opsForValue().get(debounceKey);
+                 if (value instanceof Number) {
+                     long latest = ((Number) value).longValue();
+                     if (payload.getDebounceTimestamp() < latest) {
+                         log.info("Debouncing message: conversationId={} msgTimestamp={} latestTimestamp={} -> SKIP processing (history updated)",
+                                 payload.getConversationId(), payload.getDebounceTimestamp(), latest);
+                         return;
+                     }
+                 }
+             } catch (Exception e) {
+                 log.error("Failed to check debounce key", e);
+             }
         }
 
         try {

@@ -22,4 +22,7 @@ public class WebhookQueueProperties {
     private int conversationMaxMessages = 50;
     /** Prefix key Redis: {prefix}{conversationId} = list N tin gần nhất */
     private String conversationRecentPrefix = "minichat:conv:recent:";
+    
+    /** Prefix for debounce timestamp key: {prefix}{conversationId} */
+    private String debounceKeyPrefix = "minichat:debounce:timestamp:";
 }

@@ -13,6 +13,8 @@ import org.springframework.context.annotation.Configuration;
  * (không gắn @ConditionalOnProperty) để tránh trên Railway điều kiện đánh giá sai thứ tự khiến bean không được tạo.
  * Bật/tắt queue vẫn do app.webhook.queue.enabled và do InboundMessageQueueService / InboundMessageQueueListener có @ConditionalOnProperty.
  */
+import org.redisson.codec.JsonJacksonCodec;
+
 @Slf4j
 @Configuration
 public class RedissonQueueConfig {
@@ -22,8 +24,8 @@ public class RedissonQueueConfig {
             RedissonClient redisson,
             WebhookQueueProperties queueProperties) {
         String name = queueProperties.getMainQueueName();
-        log.info("Redisson queue: creating main queue '{}'", name);
-        return redisson.getBlockingQueue(name);
+        log.info("Redisson queue: creating main queue '{}' with JsonJacksonCodec", name);
+        return redisson.getBlockingQueue(name, new JsonJacksonCodec());
     }
 
     @Bean

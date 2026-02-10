@@ -21,11 +21,14 @@ public class InboundMessageQueueService {
 
     private final RDelayedQueue<InboundMessageQueuePayload> messageDelayedQueue;
     private final WebhookQueueProperties queueProperties;
+    private final org.springframework.data.redis.core.RedisTemplate<String, Object> redisTemplate;
 
     public InboundMessageQueueService(RDelayedQueue<InboundMessageQueuePayload> messageDelayedQueue,
-                                      WebhookQueueProperties queueProperties) {
+                                      WebhookQueueProperties queueProperties,
+                                      org.springframework.data.redis.core.RedisTemplate<String, Object> redisTemplate) {
         this.messageDelayedQueue = messageDelayedQueue;
         this.queueProperties = queueProperties;
+        this.redisTemplate = redisTemplate;
     }
 
     /**
@@ -35,6 +38,21 @@ public class InboundMessageQueueService {
         if (doc == null || doc.getId() == null) {
             return;
         }
+        
+        long timestamp = System.currentTimeMillis();
+        long delay = Math.max(1, queueProperties.getDelaySeconds());
+        
+        // Save debounce timestamp to Redis
+        if (doc.getConversationId() != null) {
+            String debounceKey = queueProperties.getDebounceKeyPrefix() + doc.getConversationId();
+            try {
+                // Set with TTL = delay * 2 to be safe
+                redisTemplate.opsForValue().set(debounceKey, timestamp, delay * 2, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.warn("Failed to set debounce timestamp for conversationId={}", doc.getConversationId(), e);
+            }
+        }
+
         InboundMessageQueuePayload payload = InboundMessageQueuePayload.builder()
                 .conversationId(doc.getConversationId())
                 .channelId(doc.getChannelId())
@@ -45,10 +63,11 @@ public class InboundMessageQueueService {
                 .text(doc.getText())
                 .platform(doc.getPlatform())
                 .createdAt(doc.getCreatedAt() != null ? doc.getCreatedAt().toString() : null)
+                .debounceTimestamp(timestamp)
                 .build();
-        long delay = Math.max(1, queueProperties.getDelaySeconds());
+        
         messageDelayedQueue.offer(payload, delay, TimeUnit.SECONDS);
-        log.debug("Queued message to delayed queue: messageId={} conversationId={} delay={}s",
-                doc.getId(), doc.getConversationId(), delay);
+        log.debug("Queued message to delayed queue: messageId={} conversationId={} delay={}s timestamp={}",
+                doc.getId(), doc.getConversationId(), delay, timestamp);
     }
 }
