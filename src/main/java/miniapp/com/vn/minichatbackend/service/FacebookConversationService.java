@@ -730,4 +730,38 @@ public class FacebookConversationService {
         @JsonProperty("width")
         private Integer width;
     }
+
+    /**
+     * Gửi trạng thái "đang soạn tin" (typing_on) hoặc dừng (typing_off).
+     *
+     * @param pageAccessToken Page Access Token
+     * @param recipientPsid   PSID người nhận
+     * @param isOn            true để bật typing_on, false để tắt/typing_off
+     * @return Result thành công hoặc lỗi
+     */
+    public Result<Void> sendTypingIndicator(String pageAccessToken, String recipientPsid, boolean isOn) {
+        if (pageAccessToken == null || pageAccessToken.trim().isEmpty() || recipientPsid == null || recipientPsid.trim().isEmpty()) {
+            return Result.error(ErrorCode.INVALID_REQUEST, "Thiếu token hoặc recipientId");
+        }
+        try {
+            String url = facebookConfig.getGraphApi().getUrl() + "/me/messages?access_token=" + pageAccessToken.trim();
+            Map<String, Object> body = new HashMap<>();
+            body.put("recipient", Collections.singletonMap("id", recipientPsid.trim()));
+            body.put("sender_action", isOn ? "typing_on" : "typing_off");
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+
+            ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                log.debug("Sent typing indicator ({}) to PSID={}", isOn ? "on" : "off", recipientPsid);
+                return Result.success(null);
+            }
+            return Result.error(ErrorCode.INTERNAL_ERROR, "Facebook API returned non-success");
+        } catch (Exception e) {
+            log.warn("Failed to send typing indicator to PSID={}: {}", recipientPsid, e.getMessage());
+            return Result.error(ErrorCode.INTERNAL_ERROR, e.getMessage());
+        }
+    }
 }

@@ -90,62 +90,68 @@ public class AiInboundMessageProcessor implements InboundMessageProcessor {
                 .businessId(businessId)
                 .build();
 
-        AiCoreChatResponse aiResponse = aiCoreChatService.sendMessage(request);
-        if (aiResponse == null || aiResponse.getData() == null || aiResponse.getData().getResponse() == null) {
-            log.warn("AiInbound: no valid response from AI Core conversationId={}", payload.getConversationId());
-            return;
+        String pageAccessToken = channelService.getPageAccessToken(channel.getId());
+
+        // Bật trạng thái "đang soạn tin" trên Facebook
+        if (PLATFORM_FACEBOOK.equalsIgnoreCase(channel.getPlatform()) && pageAccessToken != null) {
+            facebookConversationService.sendTypingIndicator(pageAccessToken, payload.getSenderId(), true);
         }
 
-        String responseText = aiResponse.getData().getResponse();
-        if (responseText == null) {
-            responseText = "";
-        }
-
-        // Split by newline
-        String[] splitMessages = responseText.split("\\R"); // \R matches any Unicode linebreak sequence
-
-        for (String msgPart : splitMessages) {
-            if (msgPart == null || msgPart.trim().isEmpty()) {
-                continue;
+        try {
+            AiCoreChatResponse aiResponse = aiCoreChatService.sendMessage(request);
+            if (aiResponse == null || aiResponse.getData() == null || aiResponse.getData().getResponse() == null) {
+                log.warn("AiInbound: no valid response from AI Core conversationId={}", payload.getConversationId());
+                return;
             }
 
-            String trimmedMsg = msgPart.trim();
-            boolean isImage = isImageUrl(trimmedMsg);
-
-            // 1. Context Cache (Redis)
-            pushAssistantTurnToCache(payload.getConversationId(), trimmedMsg);
-
-            // 2. DB (Mongo) & Broadcast (WebSocket)
-            MessageDocument.MessageDocumentBuilder outboundBuilder = MessageDocument.builder()
-                    .conversationId(payload.getConversationId())
-                    .channelId(payload.getChannelId())
-                    .externalMessageId(null)
-                    .senderId(channel.getChannelId())
-                    .recipientId(payload.getSenderId())
-                    .direction("OUTBOUND")
-                    .platform(PLATFORM_FACEBOOK)
-                    .createdAt(Instant.now());
-
-            if (isImage) {
-                outboundBuilder.text("[Image]"); // Display placeholder in chat history for image
-                outboundBuilder.attachments(List.of(new MessageDocument.AttachmentInfo("image", trimmedMsg)));
-            } else {
-                outboundBuilder.text(trimmedMsg);
+            String responseText = aiResponse.getData().getResponse();
+            if (responseText == null) {
+                responseText = "";
             }
 
-            MessageDocument outbound = outboundBuilder.build();
+            // Split by newline
+            String[] splitMessages = responseText.split("\\R"); // \R matches any Unicode linebreak sequence
 
-            try {
-                messageRepository.save(outbound);
-                conversationMessageBroadcastService.broadcastFromDocument(outbound);
-            } catch (Exception e) {
-                log.error("AiInbound: failed to save/broadcast outbound conversationId={}", payload.getConversationId(), e);
-            }
+            for (String msgPart : splitMessages) {
+                if (msgPart == null || msgPart.trim().isEmpty()) {
+                    continue;
+                }
 
-            // 3. Send to Facebook
-            if (PLATFORM_FACEBOOK.equalsIgnoreCase(channel.getPlatform())) {
-                String pageAccessToken = channelService.getPageAccessToken(channel.getId());
-                if (pageAccessToken != null) {
+                String trimmedMsg = msgPart.trim();
+                boolean isImage = isImageUrl(trimmedMsg);
+
+                // 1. Context Cache (Redis)
+                pushAssistantTurnToCache(payload.getConversationId(), trimmedMsg);
+
+                // 2. DB (Mongo) & Broadcast (WebSocket)
+                MessageDocument.MessageDocumentBuilder outboundBuilder = MessageDocument.builder()
+                        .conversationId(payload.getConversationId())
+                        .channelId(payload.getChannelId())
+                        .externalMessageId(null)
+                        .senderId(channel.getChannelId())
+                        .recipientId(payload.getSenderId())
+                        .direction("OUTBOUND")
+                        .platform(PLATFORM_FACEBOOK)
+                        .createdAt(Instant.now());
+
+                if (isImage) {
+                    outboundBuilder.text("[Image]"); // Display placeholder in chat history for image
+                    outboundBuilder.attachments(List.of(new MessageDocument.AttachmentInfo("image", trimmedMsg)));
+                } else {
+                    outboundBuilder.text(trimmedMsg);
+                }
+
+                MessageDocument outbound = outboundBuilder.build();
+
+                try {
+                    messageRepository.save(outbound);
+                    conversationMessageBroadcastService.broadcastFromDocument(outbound);
+                } catch (Exception e) {
+                    log.error("AiInbound: failed to save/broadcast outbound conversationId={}", payload.getConversationId(), e);
+                }
+
+                // 3. Send to Facebook
+                if (PLATFORM_FACEBOOK.equalsIgnoreCase(channel.getPlatform()) && pageAccessToken != null) {
                     Result<SendMessageResponse> sendResult;
                     if (isImage) {
                         // Send as image attachment
@@ -167,9 +173,12 @@ public class AiInboundMessageProcessor implements InboundMessageProcessor {
                     if (!sendResult.isSuccess()) {
                         log.warn("AiInbound: Facebook send failed conversationId={} {}", payload.getConversationId(), sendResult.getMessage());
                     }
-                } else {
-                    log.warn("AiInbound: no page token for channelId={}", channel.getId());
                 }
+            }
+        } finally {
+            // Tắt trạng thái "đang soạn tin" sau khi đã gửi xong hoặc có lỗi
+            if (PLATFORM_FACEBOOK.equalsIgnoreCase(channel.getPlatform()) && pageAccessToken != null) {
+                facebookConversationService.sendTypingIndicator(pageAccessToken, payload.getSenderId(), false);
             }
         }
     }

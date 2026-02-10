@@ -32,29 +32,57 @@ public class InboundMessageQueueListener {
     private final RedisTemplate<String, Object> redisTemplate;
     private final InboundMessageProcessor inboundMessageProcessor;
 
-    private ExecutorService executor;
+    private ExecutorService listenerExecutor;
+    private ExecutorService workerExecutor;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     @PostConstruct
     public void start() {
         log.info("InboundMessageQueueListener starting...");
         running.set(true);
-        executor = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "inbound-message-queue-listener");
+        
+        // Executor cho vòng lặp take from queue
+        listenerExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "inbound-message-listener");
             t.setDaemon(false);
             return t;
         });
-        executor.submit(this::runLoop);
-        log.info("InboundMessageQueueListener started, mainQueue={}, delay={}s, maxMessagesPerConv={}",
-                queueProperties.getMainQueueName(), queueProperties.getDelaySeconds(),
-                queueProperties.getConversationMaxMessages());
+
+        // Thread Pool cho việc xử lý tin nhắn song song (gọi AI Core, gửi Facebook...)
+        int coreSize = queueProperties.getWorkerPoolCoreSize();
+        int maxSize = queueProperties.getWorkerPoolMaxSize();
+        workerExecutor = new java.util.concurrent.ThreadPoolExecutor(
+                coreSize, maxSize,
+                60L, java.util.concurrent.TimeUnit.SECONDS,
+                new java.util.concurrent.LinkedBlockingQueue<>(1000),
+                r -> {
+                    Thread t = new Thread(r, "inbound-worker");
+                    t.setDaemon(true);
+                    return t;
+                },
+                new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy()
+        );
+
+        listenerExecutor.submit(this::runLoop);
+        log.info("InboundMessageQueueListener started, mainQueue={}, workers={}-{}",
+                queueProperties.getMainQueueName(), coreSize, maxSize);
     }
 
     @PreDestroy
     public void stop() {
         running.set(false);
-        if (executor != null) {
-            executor.shutdownNow();
+        if (listenerExecutor != null) {
+            listenerExecutor.shutdownNow();
+        }
+        if (workerExecutor != null) {
+            workerExecutor.shutdown();
+            try {
+                if (!workerExecutor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                    workerExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                workerExecutor.shutdownNow();
+            }
         }
         log.info("InboundMessageQueueListener stopped");
     }
@@ -63,13 +91,20 @@ public class InboundMessageQueueListener {
         while (running.get()) {
             try {
                 InboundMessageQueuePayload payload = messageMainQueue.take();
-                processPayload(payload);
+                // Submit sang worker pool để xử lý song song, tránh block queue loop
+                workerExecutor.submit(() -> {
+                    try {
+                        processPayload(payload);
+                    } catch (Exception e) {
+                        log.error("Error in worker thread processing payload", e);
+                    }
+                });
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 if (!running.get()) break;
                 log.warn("Listener interrupted", e);
             } catch (Exception e) {
-                log.error("Error processing message from queue", e);
+                log.error("Error taking message from main queue", e);
             }
         }
     }
