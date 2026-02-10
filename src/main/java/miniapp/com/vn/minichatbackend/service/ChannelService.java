@@ -82,6 +82,20 @@ public class ChannelService {
         // Mã hóa page access token trước khi lưu
         String encryptedAccessToken = encryptionService.encrypt(pageData.getAccessToken());
 
+        // Kiểm tra Channel đã tồn tại ở Business KHÁC chưa (Global check)
+        Optional<Channel> existingGlobalOpt = channelRepository.findByChannelIdAndPlatform(
+            request.getPageId(), facebookConfig.getPlatformName());
+
+        if (existingGlobalOpt.isPresent()) {
+            Channel existingGlobal = existingGlobalOpt.get();
+            if (!existingGlobal.getBusinessId().equals(request.getBusinessId())) {
+                log.warn("Channel already linked to another business: channelId={}, currentBusiness={}, requestBusiness={}",
+                    existingGlobal.getId(), existingGlobal.getBusinessId(), request.getBusinessId());
+                return Result.error(ErrorCode.INVALID_REQUEST,
+                    "Fanpage này đã được liên kết với một Business khác. Vui lòng kiểm tra lại.");
+            }
+        }
+
         Optional<Channel> existingOpt = channelRepository.findByBusinessIdAndChannelId(
             request.getBusinessId(), request.getPageId());
 
