@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Service
-@ConditionalOnProperty(name = "app.webhook.queue.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.webhook.queue.producer-enabled", havingValue = "true")
 public class InboundMessageQueueService {
 
     private final RDelayedQueue<InboundMessageQueuePayload> messageDelayedQueue;
